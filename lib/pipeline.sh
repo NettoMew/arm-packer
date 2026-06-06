@@ -50,10 +50,6 @@ run_pipeline() {
       return 0
     fi
   fi
-  if [[ "${WITH_ZFS}" == "1" ]]; then
-    zfs_prepare_source           # OpenZFS out-of-tree module (CDDL → never in .config)
-    zfs_build_module
-  fi
   board_hook build_modules       # out-of-tree drivers (e.g. AIC8800; incremental)
   make_empty_image_and_partition
   write_bootloader_to_image

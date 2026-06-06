@@ -14,10 +14,6 @@
 ARCH_ROOTFS_URL="${ARCH_ROOTFS_URL:-http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz}"
 GPU_USERSPACE_PACKAGES="${GPU_USERSPACE_PACKAGES:-mesa}"
 WIFI_USERSPACE_PACKAGES="${WIFI_USERSPACE_PACKAGES:-wpa_supplicant iw bluez bluez-utils}"
-# OpenZFS userspace (WITH_ZFS=1). Not in ALARM's official repos (CDDL) — the online
-# install will warn and skip unless an archzfs repo is configured; the out-of-tree
-# zfs.ko (lib/zfs.sh) is installed regardless.
-ZFS_USERSPACE_PACKAGES="${ZFS_USERSPACE_PACKAGES:-zfs-utils}"
 DISTRO_PRETTY="${DISTRO_PRETTY:-Arch Linux}"
 # The full ALARM rootfs is ~2.5-3 GB uncompressed (extracted before the slim strip
 # runs), so the build image needs room for it. Sparse + xz + first-boot resize make

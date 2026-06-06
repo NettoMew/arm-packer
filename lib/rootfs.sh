@@ -15,9 +15,7 @@ populate_rootfs() {
 
   install_kernel_modules
   board_hook install_modules      # out-of-tree drivers (e.g. AIC8800)
-  [[ "${WITH_ZFS}" == "1" ]] && zfs_install   # OpenZFS module into rootfs + depmod
   board_hook install_userspace    # online wifi/bt userspace
-  [[ "${WITH_ZFS}" == "1" ]] && zfs_install_userspace   # zpool/zfs CLIs (best-effort)
   install_gpu_userspace
   vendor_firmware_extras          # e.g. RK3588 Mali CSF firmware
   install_board_files

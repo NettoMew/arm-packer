@@ -1,7 +1,0 @@
-# OpenZFS out-of-tree module (WITH_ZFS=1). The .ko is built/installed by lib/zfs.sh
-# — ZFS is CDDL and can never be a kernel CONFIG. This fragment only ensures the
-# in-kernel prerequisites the module relies on at build/load time.
-CONFIG_MODULES=y
-CONFIG_KALLSYMS=y
-# zpool/zfs operate on GPT-partitioned whole disks.
-CONFIG_EFI_PARTITION=y

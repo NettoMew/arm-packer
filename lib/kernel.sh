@@ -37,7 +37,6 @@ kernel_fragment_list() {
   list+=("${KCONFIG_DIR}/leds-input.fragment")
   [[ "${DOCKER_KERNEL}" == "1" ]] && list+=("${KCONFIG_DIR}/docker.fragment")
   [[ "${MODERN_KERNEL}" == "1" ]] && list+=("${KCONFIG_DIR}/modern.fragment")
-  [[ "${WITH_ZFS}" == "1" ]] && list+=("${KCONFIG_DIR}/zfs.fragment")
   KERNEL_FRAGMENT_LIST=("${list[@]}")
 }
 

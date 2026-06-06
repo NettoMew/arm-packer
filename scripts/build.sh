@@ -126,11 +126,6 @@ for m in deps workspace sources uboot kernel image rootfs pipeline; do
   source "${LIB_DIR}/${m}.sh"
 done
 
-# Optional cross-board feature: OpenZFS out-of-tree module (lib/zfs.sh defines the
-# zfs_* helpers that pipeline.sh / rootfs.sh call when WITH_ZFS=1).
-[[ "${WITH_ZFS}" == "1" ]] && { # shellcheck source=/dev/null
-  source "${LIB_DIR}/zfs.sh"; }
-
 # cleanup() (in workspace.sh) needs the globals from env.sh; install the EXIT trap
 # now that everything is sourced.
 trap cleanup EXIT
@@ -148,7 +143,6 @@ if [[ "${DRY_RUN}" == "1" ]]; then
   log "partition table: $(vendor_partition_table)"
   log "wired NICs (all DHCP): ${BOARD_NICS}"
   log "full linux-firmware: ${FULL_FIRMWARE}"
-  log "OpenZFS module: ${WITH_ZFS}"
   log "cmdline extra: ${BOARD_KERNEL_CMDLINE_EXTRA:-<none>}"
   kernel_fragment_list
   log "kernel fragments (${#KERNEL_FRAGMENT_LIST[@]}, merge order):"

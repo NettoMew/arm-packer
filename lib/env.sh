@@ -115,11 +115,6 @@ DISTRO_CONFIG_FRAGMENT="${DISTRO_CONFIG_FRAGMENT:-${PROJECT_DIR}/kconfig/distro-
 # off (each distro keeps its lean default); a board may set it (e.g. H88K).
 FULL_FIRMWARE="${FULL_FIRMWARE:-0}"
 
-# Build OpenZFS as an out-of-tree module against the just-built kernel and install
-# it + the userspace tools (distro ZFS_USERSPACE_PACKAGES). Default off; opt-in per
-# board (board.conf) or per build (WITH_ZFS=1). Source repo/ref/dir live in
-# lib/zfs.sh (sourced after the derived paths below, so they can use SRC_DIR).
-WITH_ZFS="${WITH_ZFS:-0}"
 # Directory holding the composable kconfig fragments merged on top of defconfig.
 KCONFIG_DIR="${KCONFIG_DIR:-${PROJECT_DIR}/kconfig}"
 # Directory holding fixed rootfs reference files (resize script, wpa template,

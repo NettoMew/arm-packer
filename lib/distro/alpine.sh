@@ -31,9 +31,6 @@ APK_TOOLS_STATIC_REPO="${APK_TOOLS_STATIC_REPO:-https://dl-cdn.alpinelinux.org/a
 # Userspace package names (Alpine flavour). Engine-generic vars resolved here.
 GPU_USERSPACE_PACKAGES="${GPU_USERSPACE_PACKAGES:-mesa-dri-gallium mesa-egl mesa-gles mesa-gbm}"
 WIFI_USERSPACE_PACKAGES="${WIFI_USERSPACE_PACKAGES:-wpa_supplicant wireless-tools iw bluez bluez-openrc}"
-# OpenZFS userspace (WITH_ZFS=1). Alpine ships the tools in community; the matching
-# module is the out-of-tree one lib/zfs.sh built, not Alpine's zfs-lts.
-ZFS_USERSPACE_PACKAGES="${ZFS_USERSPACE_PACKAGES:-zfs}"
 
 # Shown in the extlinux boot menu (MENU TITLE / LABEL).
 DISTRO_PRETTY="${DISTRO_PRETTY:-Alpine Linux}"

@@ -10,12 +10,6 @@ install_dependencies() {
     tar xz aria2c blkid rsync cpio perl awk sed grep findmnt mount umount dd kpartx mkfs.vfat
     qemu-aarch64-static
   )
-  # OpenZFS (WITH_ZFS=1) builds its kernel module via autotools.
-  local apt_zfs=""
-  if [[ "${WITH_ZFS:-0}" == "1" ]]; then
-    commands+=(autoreconf libtool)
-    apt_zfs="autoconf automake libtool gawk"   # base-devel / @development-tools already carry these
-  fi
   for cmd in "${commands[@]}"; do
     have "${cmd}" || missing+=("${cmd}")
   done
@@ -37,7 +31,7 @@ install_dependencies() {
       git bc bison flex swig device-tree-compiler python-is-python3 python3 \
       python3-setuptools python3-dev python3-pyelftools python3-yaml libssl-dev uuid-dev \
       libgnutls28-dev libncurses-dev kmod dwarves qemu-user-static binfmt-support \
-      kpartx dosfstools e2fsprogs parted util-linux udev aria2 xz-utils tar rsync cpio perl ${apt_zfs}
+      kpartx dosfstools e2fsprogs parted util-linux udev aria2 xz-utils tar rsync cpio perl
   elif have pacman; then
     # shellcheck disable=SC2086 # PACMAN_ASSUME_YES intentionally contains multiple flags.
     run_sudo pacman -Sy ${PACMAN_ASSUME_YES} \
