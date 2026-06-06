@@ -1,0 +1,42 @@
+#!/bin/sh
+# M28K LED triggers for Alpine, mirroring ImmortalWrt's board.d/01_leds +
+# init.d/phy-leds mapping for widora,mangopi-m28k (UCI -> sysfs):
+#   01_leds : white:lan -> LAN (gmac),  white:wan -> WAN (r8169)   [link+activity]
+#   phy-leds: stmmac-0:01:amber:lan -> gmac link,  green:lan -> gmac activity
+# Note: the netdev trigger's writable config attrs are link_10/link_100/link_1000
+# (plus rx/tx); "link" itself is read-only (current state). ImmortalWrt hardcodes
+# eth0=gmac/eth1=r8169 (vendor probe order); mainline can differ, so detect by driver.
+
+_nd() { # $1=led $2=iface $3=link(0/1) $4=act(0/1)
+	d="/sys/class/leds/$1"
+	[ -d "$d" ] && [ -n "$2" ] || return 0
+	echo netdev > "$d/trigger" 2>/dev/null
+	[ -e "$d/device_name" ] || return 0
+	echo "$2" > "$d/device_name" 2>/dev/null
+	for s in link_10 link_100 link_1000; do echo "$3" > "$d/$s" 2>/dev/null; done
+	echo "$4" > "$d/tx" 2>/dev/null
+	echo "$4" > "$d/rx" 2>/dev/null
+}
+
+gmac=""; rtl=""
+# Detect by driver, not by name: ImmortalWrt assumes eth0/eth1, but mainline +
+# systemd predictable naming gives end0/enp1s0 (and Alpine may give eth*). Walk
+# every netdev that has a real ../device/driver (skips lo and virtual ifaces).
+for n in /sys/class/net/*; do
+	[ -e "$n/device/driver" ] || continue
+	ifn=$(basename "$n")
+	case "$(readlink -f "$n/device/driver" 2>/dev/null)" in
+		*stmmac*|*dwmac*|*rk_gmac*) gmac="$ifn" ;;
+		*r8169*)                    rtl="$ifn" ;;
+	esac
+done
+
+# status: system-alive heartbeat (ImmortalWrt led-running = status_led)
+[ -d /sys/class/leds/green:status ] && echo heartbeat > /sys/class/leds/green:status/trigger 2>/dev/null
+
+_nd white:lan "$gmac" 1 1               # LAN: link + activity
+_nd white:wan "$rtl"  1 1               # WAN: link + activity
+_nd stmmac-0:01:amber:lan "$gmac" 1 0   # gmac connector: link
+_nd stmmac-0:01:green:lan "$gmac" 0 1   # gmac connector: activity
+
+exit 0

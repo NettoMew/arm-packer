@@ -1,0 +1,12 @@
+# leds-input.fragment — generic LEDs + GPIO keys + evdev (all boards)
+# Auto-derived from the original build.sh ensure_kernel_config_option lines.
+# Merged on top of defconfig (+distro) by lib/kernel.sh; later fragments win.
+
+CONFIG_NEW_LEDS=y
+CONFIG_LEDS_CLASS=y
+CONFIG_LEDS_GPIO=y
+CONFIG_LEDS_TRIGGER_HEARTBEAT=y
+CONFIG_LEDS_TRIGGER_NETDEV=y
+CONFIG_LEDS_TRIGGER_DEFAULT_ON=y
+CONFIG_INPUT_EVDEV=y
+CONFIG_KEYBOARD_GPIO=y

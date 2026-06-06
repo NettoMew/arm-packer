@@ -1,0 +1,11 @@
+# Hinlink H88K 240x135 SPI LCD — screen flavour only (H88K_LCD=1 wires this in via
+# BOARD_KERNEL_FRAGMENTS). The panel hangs off spi4 and is driven by the generic
+# panel-mipi-dbi-spi tinydrm driver; fbdev emulation gives it a /dev/fb for console
+# + userspace. SPI master is the in-tree Rockchip SPI controller.
+CONFIG_SPI=y
+CONFIG_SPI_ROCKCHIP=y
+CONFIG_DRM=y
+CONFIG_DRM_FBDEV_EMULATION=y
+CONFIG_DRM_MIPI_DBI=m
+CONFIG_DRM_PANEL_MIPI_DBI=m
+CONFIG_BACKLIGHT_CLASS_DEVICE=y

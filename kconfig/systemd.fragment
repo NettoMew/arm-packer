@@ -1,0 +1,21 @@
+# systemd.fragment — kernel options systemd expects (selected by DISTRO=archlinux
+# via distro_default_fragments). Most are already satisfied by defconfig +
+# distro-arm64.config (which is Arch-derived); this just force-asserts the
+# load-bearing ones so a systemd userspace boots cleanly.
+CONFIG_FHANDLE=y
+CONFIG_CGROUPS=y
+CONFIG_INOTIFY_USER=y
+CONFIG_SIGNALFD=y
+CONFIG_TIMERFD=y
+CONFIG_EPOLL=y
+CONFIG_SECCOMP=y
+CONFIG_SECCOMP_FILTER=y
+CONFIG_TMPFS=y
+CONFIG_TMPFS_POSIX_ACL=y
+CONFIG_TMPFS_XATTR=y
+CONFIG_AUTOFS_FS=y
+CONFIG_CRYPTO_USER_API_HASH=y
+CONFIG_CRYPTO_HMAC=y
+CONFIG_CRYPTO_SHA256=y
+CONFIG_NET_NS=y
+CONFIG_USER_NS=y

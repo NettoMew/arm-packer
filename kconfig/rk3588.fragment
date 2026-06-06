@@ -1,0 +1,13 @@
+# rk3588.fragment — RK3588 extras: Panthor GPU (MODULE!), DW PCIe + NVMe, USB3, HDMI-TX PHY
+# Auto-derived from the original build.sh ensure_kernel_config_option lines.
+# Merged on top of defconfig (+distro) by lib/kernel.sh; later fragments win.
+
+CONFIG_DRM_PANTHOR=m
+CONFIG_PCIE_ROCKCHIP_DW_HOST=y
+CONFIG_PHY_ROCKCHIP_SNPS_PCIE3=y
+CONFIG_BLK_DEV_NVME=y
+CONFIG_NVME_CORE=y
+CONFIG_USB_DWC3=y
+CONFIG_USB_DWC3_GENERIC=y
+CONFIG_PHY_ROCKCHIP_USBDP=y
+CONFIG_PHY_ROCKCHIP_SAMSUNG_HDPTX=y

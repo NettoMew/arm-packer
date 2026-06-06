@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+// Hinlink H88K 240x135 SPI LCD (panel-mipi-dbi-spi on spi4).
+//
+// This is the Armbian rk3588-hinlink-h88k-240x135-lcd.dtso overlay rewritten as a
+// plain #include-able fragment: this repo builds a single flat dtb per image (no
+// runtime overlay loader), so hooks.sh appends `#include "<this>"` to the board
+// DTS only in the screen flavour (H88K_LCD=1). The panel-mipi-dbi-spi driver
+// derives its init-sequence firmware name from compatible[0] →
+// "hinlink-h88k-240x135-lcd.bin" (vendored from armbian/firmware, installed into
+// /lib/firmware by board_install_extras).
+#include <dt-bindings/clock/rockchip,rk3588-cru.h>
+
+&spi4 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	assigned-clocks = <&cru CLK_SPI4>;
+	assigned-clock-rates = <200000000>;
+	num-cs = <1>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi4_custom_pins &spi4m2_cs0>;
+	status = "okay";
+
+	panel@0 {
+		compatible = "hinlink-h88k-240x135-lcd", "panel-mipi-dbi-spi";
+		reg = <0>;
+		spi-max-frequency = <2000000>;
+
+		width-mm = <25>;
+		height-mm = <15>;
+
+		dc-gpios = <&gpio1 RK_PA4 GPIO_ACTIVE_HIGH>;
+		write-only;
+
+		panel-timing {
+			hactive = <240>;
+			vactive = <135>;
+			hback-porch = <40>;
+			vback-porch = <52>;
+			clock-frequency = <0>;
+			hfront-porch = <0>;
+			hsync-len = <0>;
+			vfront-porch = <0>;
+			vsync-len = <0>;
+		};
+	};
+};
+
+&pinctrl {
+	lcd {
+		spi4_custom_pins: spi4-custom-pins {
+			rockchip,pins =
+				/* spi4_clk_m2 */
+				<1 RK_PA2 8 &pcfg_pull_up_drv_level_6>,
+				/* spi4_mosi_m2 */
+				<1 RK_PA1 8 &pcfg_pull_up_drv_level_6>,
+				/* spi4_miso_m0 */
+				<1 RK_PC0 8 &pcfg_pull_up_drv_level_6>;
+		};
+	};
+};

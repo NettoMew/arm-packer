@@ -1,0 +1,12 @@
+#!/bin/sh
+# Start the OLED oscilloscope dashboard at boot (OpenRC 'local' service).
+# Wait for the ssd130x framebuffer to appear (its i2c probe can be slightly late).
+command -v /usr/local/bin/oled-dash >/dev/null 2>&1 || exit 0
+i=0
+while [ ! -e /dev/fb0 ] && [ "$i" -lt 30 ]; do sleep 0.5; i=$((i+1)); done
+[ -e /dev/fb0 ] || exit 0
+pkill -f oled-anim 2>/dev/null
+pkill -f oled-status 2>/dev/null
+pkill -f /usr/local/bin/oled-dash 2>/dev/null
+setsid /usr/local/bin/oled-dash </dev/null >/dev/null 2>&1 &
+exit 0

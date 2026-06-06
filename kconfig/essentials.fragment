@@ -1,0 +1,19 @@
+# essentials.fragment — rootfs + networking boot essentials (all boards)
+# Auto-derived from the original build.sh ensure_kernel_config_option lines.
+# Merged on top of defconfig (+distro) by lib/kernel.sh; later fragments win.
+
+CONFIG_EXT4_FS=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_UEVENT_HELPER=y
+CONFIG_UNIX=y
+CONFIG_INET=y
+CONFIG_SYN_COOKIES=y
+CONFIG_PACKET=y
+CONFIG_NETDEVICES=y
+CONFIG_ETHERNET=y
+CONFIG_STMMAC_ETH=y
+CONFIG_STMMAC_PLATFORM=y
+CONFIG_PHYLIB=y
+CONFIG_REALTEK_PHY=y
+CONFIG_MOTORCOMM_PHY=y

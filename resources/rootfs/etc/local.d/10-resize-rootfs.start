@@ -1,0 +1,36 @@
+#!/bin/sh
+# First-boot one-shot: grow the root partition to fill the whole disk and
+# online-resize its ext4 filesystem, then disable itself. Runs via the OpenRC
+# 'local' service. Safe to leave in place: it no-ops once the flag exists.
+flag=/var/lib/misc/.rootfs-resized
+[ -f "$flag" ] && exit 0
+
+# Resolve the partition backing "/" via its major:minor (robust even when
+# /proc/mounts shows the "/dev/root" alias instead of the real node).
+mm=$(awk '$5=="/"{print $3; exit}' /proc/self/mountinfo 2>/dev/null)
+[ -n "$mm" ] || exit 0
+sys=/sys/dev/block/$mm
+[ -f "$sys/partition" ] || exit 0          # "/" isn't a real partition; nothing to grow
+partno=$(cat "$sys/partition")
+part=/dev/$(sed -n 's/^DEVNAME=//p' "$sys/uevent")
+disk=/dev/$(basename "$(dirname "$(readlink -f "$sys")")")
+[ -b "$part" ] && [ -b "$disk" ] && [ -n "$partno" ] || exit 0
+
+# Grow the partition table entry. growpart safely rewrites the in-use root
+# partition (handles MBR and GPT, relocating the GPT backup header on cards
+# larger than the image) and pokes the kernel to pick up the new size. It
+# returns non-zero on NOCHANGE, so key off its message instead of the exit code.
+command -v growpart >/dev/null 2>&1 || { logger -t resize-rootfs "growpart missing; skip"; exit 0; }
+out=$(growpart "$disk" "$partno" 2>&1)
+case "$out" in
+	*CHANGED*|*NOCHANGE*) : ;;                  # grew, or already at max -- both fine
+	*) logger -t resize-rootfs "growpart failed: $out"; exit 0 ;;
+esac
+
+# Online-grow the ext4 filesystem to the (new) partition size.
+resize2fs "$part" >/dev/null 2>&1 || true
+
+mkdir -p /var/lib/misc
+: > "$flag"
+logger -t resize-rootfs "rootfs ($part) expand: $out"
+exit 0
