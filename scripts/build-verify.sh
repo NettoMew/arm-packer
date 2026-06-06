@@ -18,4 +18,4 @@ for e in "${runs[@]}"; do
     echo "  FAIL ${n} (exit $?) tail:" | tee -a "$SUM"; tail -12 "$log" | sed 's/^/    /' | tee -a "$SUM"
   fi
 done
-echo "===== images:" | tee -a "$SUM"; ls -lh out/*.img.xz 2>/dev/null | tee -a "$SUM"
+echo "===== images:" | tee -a "$SUM"; ls -lh out/*.img.zst 2>/dev/null | tee -a "$SUM"

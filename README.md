@@ -12,7 +12,7 @@
   - **`alpine`**（默认）：`apk.static` 离线装 sys-mode rootfs + OpenRC + ifupdown，镜像小（~170M）
   - **`archlinux`**：上游 ALARM aarch64 rootfs + pacman + systemd（出厂预置 keyring，瘦身后 ~660M）
 
-成品是可直接 `dd` 到 eMMC/SD 的整盘镜像，默认 `xz --best` 压成 `*.img.xz`。镜像名为
+成品是可直接 `dd` 到 eMMC/SD 的整盘镜像，默认 `zstd -19` 压成 `*.img.zst`。镜像名为
 **`<板>-<发行版>-<内核版本号>.img`**（如 `radxa-rock5c-archlinux-7.1.0-rc6.img`、
 `radxa-e20c-alpine-6.12.1.img`）——内核版本号取自 `make kernelversion`。
 
@@ -67,7 +67,7 @@ make all             # 依次构建全部板子
 任意 `scripts/build.sh` 的开关都能在命令行透传，例：`make opiz3 ROOT_PASSWORD=secret SKIP_FETCH=1`。
 `make <板>-dry`（如 `make opiz3-dry`）只解析配置、打印内核片段与板级钩子，不构建（秒级、无需联网/sudo）。
 
-成品在 `out/` 下，例如 `out/radxa-rock5c-archlinux-7.1.0-rc6.img.xz`。
+成品在 `out/` 下，例如 `out/radxa-rock5c-archlinux-7.1.0-rc6.img.zst`。
 
 > **加速迭代**：内核默认**增量编译**（同板重编几秒）；`CLEAN_KERNEL=1` 从头编；`SKIP_BUILD=1`
 > 跳过 U-Boot+内核只跑 rootfs/镜像；`SKIP_FETCH=1` 复用已克隆源码树。
@@ -89,7 +89,7 @@ make all             # 依次构建全部板子
 | `ARCH_BUILD_KEYRING` | `1` | 仅 `archlinux`：构建期 qemu chroot 预置 pacman keyring（首登即可 pacman）；`0`=首启再初始化 |
 | `IMAGE_SIZE` | 按发行版（alpine `1G` / arch `4G`） | 构建镜像大小（稀疏 + 首启扩容，留足解 rootfs 的空间） |
 | `ROOTFS_EXT4_FEATURES` | `^metadata_csum,^metadata_csum_seed,^orphan_file,^64bit` | 传给 `mkfs.ext4 -O` 的根分区特性；默认使用 U-Boot 更稳的保守 ext4，避免能读 `extlinux.conf` 但加载 `/boot/Image` 失败 |
-| `COMPRESS_IMAGE` | `1` | `1`=构建后 `xz --best` 压缩并删除原始 `.img` |
+| `COMPRESS_IMAGE` | `1` | `1`=构建后 `zstd -19` 压缩并删除原始 `.img` |
 | `INSTALL_DEPS` | `1` | `0`=只检查依赖、缺失就报错，不自动装 |
 | `ROOT_PASSWORD` | `120102` | root 密码（SHA-512 写入 `/etc/shadow`）；置空则免密码（仅串口） |
 | `ROOT_AUTHORIZED_KEY` | 内置 ed25519 公钥 | 写入 `/root/.ssh/authorized_keys`，并开 `PermitRootLogin yes` |
@@ -185,7 +185,7 @@ RK3582 的"砍核"**完全发生在 U-Boot**：主线 U-Boot 的 `ft_system_setu
 ```sh
 IMG=out/radxa-rock5c-archlinux-7.1.0-rc6.img    # 换成你实际的成品名（含内核版本号）
 # xz 已删除原始 img，可直接解压管道写盘（务必先核对 /dev/sdX 是正确的卡 / eMMC）
-xz -dc "$IMG.xz" | sudo dd of=/dev/sdX bs=4M conv=fsync iflag=fullblock status=progress
+zstd -dc "$IMG.xz" | sudo dd of=/dev/sdX bs=4M conv=fsync iflag=fullblock status=progress
 ```
 
 首次启动后根分区自动扩展到整盘并一次性自禁用：Alpine 走 `/etc/local.d/10-resize-rootfs.start`
@@ -208,7 +208,7 @@ xz -dc "$IMG.xz" | sudo dd of=/dev/sdX bs=4M conv=fsync iflag=fullblock status=p
 - GPU：内核 DRM（RK3528=lima / RK3588=Panthor）+ 用户态 Mesa
 - 时间：chrony（aliyun NTP）+ tzdata（Asia/Shanghai），无 RTC 也能开机校时
 - SSH（公钥 + 密码）、root 密码、串口控制台、mdev 热插拔
-- 输出 `xz --best` 压缩为 `*.img.xz`（删除原始 `.img`）
+- 输出 `zstd -19` 压缩为 `*.img.zst`（删除原始 `.img`）
 
 **E20C / M28K（RK3528）**
 - 双千兆网口：PCIe `r8169`（combphy）+ RGMII `gmac`（INNO PHY）
@@ -283,5 +283,5 @@ boards/rock5c/                #   hooks.sh（RK3582 开核 + AIC8800 USB）+ ubo
 kconfig/                      # 可组合内核片段 + distro-arm64.config 基线（见 kconfig/README.md）
 resources/rootfs/             # 固定 rootfs 文件（resize 脚本、wpa 模板、interfaces 基底）
 work/                         # 源码树工作区（U-Boot/Linux + rkbin/aic8800 或 arm-trusted-firmware）
-out/                          # 成品镜像（*.img.xz）
+out/                          # 成品镜像（*.img.zst）
 ```

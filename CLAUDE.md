@@ -9,7 +9,7 @@ board/vendor/distro 的 `if` 分支**——差异全在插件/配置里。加一
 - 等价 `BOARD=rock5c DISTRO=archlinux scripts/build.sh`。
 - `make <board>-dry` / `scripts/build.sh --dry-run`：只解析配置、打印片段/钩子/镜像名，**不构建、不联网、不 sudo**（秒级，验证改动的首选）。
 - `scripts/build.sh --stop-after-kconfig`：编到内核 `.config` 就停（用于对比 `.config`）。
-- 以普通用户跑；需要 root 的步骤自动 `sudo`。成品在 `out/`，镜像名 `<前缀>-<distro>-<内核版本>.img.xz`。
+- 以普通用户跑；需要 root 的步骤自动 `sudo`。成品在 `out/`，镜像名 `<前缀>-<distro>-<内核版本>.img.zst`。
 
 ## 目录 / 职责
 ```
@@ -63,7 +63,7 @@ work/  out/                          源码树工作区 / 成品
 
 ## 验证手段
 - 改完先 `bash -n` 全部脚本 + 各板 `--dry-run`（看 vendor/SoC、分区表、片段列表与顺序、钩子、镜像名、IMAGE_SIZE）。
-- 真验证镜像：`xz -dc out/X.img.xz | sudo losetup -fP …` 挂载抽查（firmware、keyring、grow 单元、hostname、modules 大小）。
+- 真验证镜像：`zstd -dc out/X.img.zst | sudo losetup -fP …` 挂载抽查（firmware、keyring、grow 单元、hostname、modules 大小）。
 - 内核语义无损：`--stop-after-kconfig` 后 diff 新旧 `.config`。
 
 ## 加新东西

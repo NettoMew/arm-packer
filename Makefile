@@ -87,4 +87,4 @@ all: e20c m28k-screen m28k-noscreen rock5c opiz3 hinlink-h88k-screen hinlink-h88
 	BOARD=$* $(BUILD) --dry-run
 
 clean:
-	rm -f out/*.img out/*.img.xz out/*.img.xz.sha256
+	rm -f out/*.img out/*.img.zst out/*.img.zst.sha256

@@ -61,6 +61,11 @@ run_pipeline() {
   compress_image
 
   section "Done"
-  log "Firmware image: ${IMAGE_PATH}"
-  log "To write to removable media, use a carefully verified target device, e.g.: sudo dd if='${IMAGE_PATH}' of=/dev/sdX bs=4M conv=fsync status=progress"
+  if [[ "${COMPRESS_IMAGE}" == "1" && -f "${IMAGE_PATH}.zst" ]]; then
+    log "Firmware image: ${IMAGE_PATH}.zst"
+    log "To write to removable media (verify the target device!): zstd -dc '${IMAGE_PATH}.zst' | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress"
+  else
+    log "Firmware image: ${IMAGE_PATH}"
+    log "To write to removable media (verify the target device!): sudo dd if='${IMAGE_PATH}' of=/dev/sdX bs=4M conv=fsync status=progress"
+  fi
 }

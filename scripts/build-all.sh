@@ -23,9 +23,9 @@ for entry in "${runs[@]}"; do
   log="logs/refactor-${name}-${STAMP}.log"
   echo "===== [$(date +%H:%M:%S)] building ${name}  (${envs}) -> ${log}" | tee -a "${SUMMARY}"
   if env ${envs} scripts/build.sh >"${log}" 2>&1; then
-    img="$(ls -1 out/*.img.xz 2>/dev/null | tail -1)"
+    img="$(ls -1 out/*.img.zst 2>/dev/null | tail -1)"
     sz="$( [ -n "${img}" ] && du -h "${img}" | cut -f1 || echo '?')"
-    echo "  OK   ${name}: $(ls -1t out/*.img.xz 2>/dev/null | head -1) (${sz})" | tee -a "${SUMMARY}"
+    echo "  OK   ${name}: $(ls -1t out/*.img.zst 2>/dev/null | head -1) (${sz})" | tee -a "${SUMMARY}"
   else
     rc=$?
     echo "  FAIL ${name}: exit ${rc} (see ${log}, tail:)" | tee -a "${SUMMARY}"
@@ -34,4 +34,4 @@ for entry in "${runs[@]}"; do
 done
 
 echo "===== [$(date +%H:%M:%S)] all builds done. Images:" | tee -a "${SUMMARY}"
-ls -lh out/*.img.xz 2>/dev/null | tee -a "${SUMMARY}"
+ls -lh out/*.img.zst 2>/dev/null | tee -a "${SUMMARY}"

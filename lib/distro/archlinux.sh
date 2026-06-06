@@ -17,7 +17,7 @@ WIFI_USERSPACE_PACKAGES="${WIFI_USERSPACE_PACKAGES:-wpa_supplicant iw bluez blue
 DISTRO_PRETTY="${DISTRO_PRETTY:-Arch Linux}"
 # The full ALARM rootfs is ~2.5-3 GB uncompressed (extracted before the slim strip
 # runs), so the build image needs room for it. Sparse + xz + first-boot resize make
-# the larger size almost free in the final .img.xz. FULL_FIRMWARE keeps the whole
+# the larger size almost free in the final .img.zst. FULL_FIRMWARE keeps the whole
 # linux-firmware pool (~1 GB+), so size up further.
 if [[ "${FULL_FIRMWARE}" == "1" ]]; then
   DISTRO_IMAGE_SIZE="${DISTRO_IMAGE_SIZE:-6G}"

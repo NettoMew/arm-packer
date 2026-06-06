@@ -115,13 +115,14 @@ finalize_image() {
 
 compress_image() {
   [[ "${COMPRESS_IMAGE}" == "1" ]] || { log "Image compression disabled (COMPRESS_IMAGE=0)."; return 0; }
-  section "Compressing image to .xz"
-  command -v xz >/dev/null 2>&1 || { warn "xz not found; leaving raw .img in place."; return 0; }
-  local out="${IMAGE_PATH}.xz"
+  section "Compressing image to .zst"
+  command -v zstd >/dev/null 2>&1 || { warn "zstd not found; leaving raw .img in place."; return 0; }
+  local out="${IMAGE_PATH}.zst"
   rm -f "${out}"
-  # --best (-9) for smallest output, -T0 = all cores; xz removes the raw .img on
-  # success (no -k), keeping only the .xz.
-  run xz --best -T0 -f "${IMAGE_PATH}"
+  # -19 = high ratio (zstd's practical "best"; far faster than xz -9 at a similar
+  # size on these mostly-sparse ext4 images), -T0 = all cores, --rm removes the raw
+  # .img on success keeping only the .zst. Decompresses with a plain `zstd -dc`.
+  run zstd -19 -T0 -f --rm "${IMAGE_PATH}"
   log "Packaged: ${out} ($(du -h "${out}" | cut -f1)); raw .img removed."
   run ls -lh "${out}"
 }

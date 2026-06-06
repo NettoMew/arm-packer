@@ -30,8 +30,8 @@ IMAGE_NAME_PREFIX="${BOARD_IMAGE_PREFIX}-${DISTRO}"
 IMAGE_NAME="${IMAGE_NAME:-}"   # empty = auto-compose with the kernel version after fetch
 # IMAGE_SIZE is finalized in scripts/build.sh AFTER the distro plugin is sourced,
 # from DISTRO_IMAGE_SIZE (Alpine's tiny rootfs fits 1G; the ALARM rootfs needs ~4G).
-# The build image is sparse + xz-compressed + first-boot-resized, so a larger
-# image costs almost nothing in the .img.xz.
+# The build image is sparse + zstd-compressed + first-boot-resized, so a larger
+# image costs almost nothing in the .img.zst (zstd -19).
 JOBS="${JOBS:-$(nproc)}"
 export MAKEFLAGS="${MAKEFLAGS:--j${JOBS}}"
 
@@ -147,7 +147,7 @@ CLEAN_KERNEL="${CLEAN_KERNEL:-0}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 
 # Set COMPRESS_IMAGE=0 to keep the raw .img only. Default (1) runs `xz` on the
-# finished image to produce <image>.img.xz and removes the raw .img.
+# finished image to produce <image>.img.zst and removes the raw .img.
 COMPRESS_IMAGE="${COMPRESS_IMAGE:-1}"
 
 # ------------------------------ Derived paths --------------------------------
