@@ -75,6 +75,19 @@ board_install_extras() {
     run_sudo mkdir -p "${MOUNTPOINT_ROOT}/etc/local.d"
     run_sudo cp "${start}" "${MOUNTPOINT_ROOT}/etc/local.d/oled-dash.start"
     run_sudo chmod +x "${MOUNTPOINT_ROOT}/etc/local.d/oled-dash.start"
+  elif [[ "${DISTRO}" == "eweos" ]]; then
+    # dinit: a process service that waits for the ssd130x framebuffer then execs
+    # oled-dash (exec so dinit tracks the daemon, not the wait shell). Enabled by
+    # symlinking into /etc/dinit.d/boot.d — the dir the `boot` bundle waits on.
+    run_sudo mkdir -p "${MOUNTPOINT_ROOT}/etc/dinit.d/boot.d"
+    run_sudo tee "${MOUNTPOINT_ROOT}/etc/dinit.d/oled-dash" >/dev/null <<'EOF'
+type = process
+command = /bin/sh -c 'i=0; while [ ! -e /dev/fb0 ] && [ "$i" -lt 30 ]; do sleep 0.5; i=$((i+1)); done; exec /usr/local/bin/oled-dash'
+restart = true
+restart-delay = 2.0
+depends-on: rc.target
+EOF
+    run_sudo ln -sf /etc/dinit.d/oled-dash "${MOUNTPOINT_ROOT}/etc/dinit.d/boot.d/oled-dash"
   else
     # systemd: run the binary directly (Type=simple), waiting for the ssd130x
     # framebuffer (its i2c probe can be slightly late) before starting.

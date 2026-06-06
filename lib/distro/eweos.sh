@@ -341,6 +341,14 @@ EOF
 }
 
 distro_finalize() {
+  # eweOS's early-root-fsck runs `fsck -C -a` on the root unless its fstab passno
+  # (field 6) is 0. The engine writes the root with passno 1, but our kernel cmdline
+  # mounts root `rw`, so e2fsck refuses ("is mounted ... Cannot continue") — noisy
+  # though non-fatal. Set the root fs_passno to 0 so eweOS cleanly skips the boot
+  # root check (journaled ext4 + first-boot grow make it unnecessary anyway).
+  run_sudo sed -i -E '/ \/ ext4 / s/ [0-9]+$/ 0/' "${MOUNTPOINT_ROOT}/etc/fstab"
+  log "fstab: root fs_passno → 0 (eweOS skips boot-time root fsck)."
+
   # FULL_FIRMWARE=1: install the whole linux-firmware pool (single eweOS package).
   [[ "${FULL_FIRMWARE}" == "1" ]] || return 0
   section "Installing full linux-firmware (FULL_FIRMWARE=1)"
