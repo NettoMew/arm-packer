@@ -77,12 +77,23 @@ board_install_extras() {
     run_sudo chmod +x "${MOUNTPOINT_ROOT}/etc/local.d/oled-dash.start"
   elif [[ "${DISTRO}" == "eweos" ]]; then
     # dinit: a process service that waits for the ssd130x framebuffer then execs
-    # oled-dash (exec so dinit tracks the daemon, not the wait shell). Enabled by
-    # symlinking into /etc/dinit.d/boot.d — the dir the `boot` bundle waits on.
-    run_sudo mkdir -p "${MOUNTPOINT_ROOT}/etc/dinit.d/boot.d"
+    # oled-dash. NB dinit does $-variable substitution on the `command` setting, so
+    # an inline `sh -c '…$i…$((…))…'` makes it choke ("invalid variable name after
+    # '$'") and FAILS THE BOOT. Keep the shell logic in a separate script the
+    # /bin/sh interprets at runtime; the dinit command contains no '$'.
+    run_sudo mkdir -p "${MOUNTPOINT_ROOT}/etc/dinit.d/boot.d" "${MOUNTPOINT_ROOT}/usr/local/bin"
+    run_sudo tee "${MOUNTPOINT_ROOT}/usr/local/bin/oled-dash-run" >/dev/null <<'EOF'
+#!/bin/sh
+# 等 ssd130x framebuffer 就绪(i2c 探测可能略晚),再 exec oled-dash(exec 让 dinit
+# 直接跟踪守护进程而非等待用的 shell）。
+i=0
+while [ ! -e /dev/fb0 ] && [ "$i" -lt 30 ]; do sleep 0.5; i=$((i + 1)); done
+exec /usr/local/bin/oled-dash
+EOF
+    run_sudo chmod +x "${MOUNTPOINT_ROOT}/usr/local/bin/oled-dash-run"
     run_sudo tee "${MOUNTPOINT_ROOT}/etc/dinit.d/oled-dash" >/dev/null <<'EOF'
 type = process
-command = /bin/sh -c 'i=0; while [ ! -e /dev/fb0 ] && [ "$i" -lt 30 ]; do sleep 0.5; i=$((i+1)); done; exec /usr/local/bin/oled-dash'
+command = /usr/local/bin/oled-dash-run
 restart = true
 restart-delay = 2.0
 depends-on: rc.target

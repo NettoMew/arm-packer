@@ -91,20 +91,31 @@ _ewe_enable() {
 distro_prepare() {
   section "Downloading eweOS aarch64 rootfs tarball"
   EWEOS_TARBALL="${DOWNLOAD_DIR}/$(basename "${EWEOS_TARBALL_URL}")"
-  if [[ ! -s "${EWEOS_TARBALL}" ]]; then
-    aria2_download "${EWEOS_TARBALL_URL}" "${EWEOS_TARBALL}.tmp"
-    mv "${EWEOS_TARBALL}.tmp" "${EWEOS_TARBALL}"
-  else
-    log "eweOS tarball already exists: ${EWEOS_TARBALL}"
-  fi
-  # Verify sha256 (best-effort: skip if the checksum file is unavailable).
-  local sum; sum="${DOWNLOAD_DIR}/$(basename "${EWEOS_TARBALL_URL}").sha256"
+
+  # eweOS is ROLLING: upstream re-publishes the tarball + its .sha256 in place. Fetch
+  # the current .sha256 first and treat it as the source of truth — reuse the cached
+  # tarball ONLY if it still matches, else re-download (otherwise a stale cache vs the
+  # fresh checksum would fail every build after upstream rolls).
+  local sum want=""
+  sum="${DOWNLOAD_DIR}/$(basename "${EWEOS_TARBALL_URL}").sha256"
   if aria2_download "${EWEOS_TARBALL_URL}.sha256" "${sum}.tmp" 2>/dev/null; then
     mv "${sum}.tmp" "${sum}"
-    local want got
     want="$(awk '{print $1; exit}' "${sum}")"
-    got="$(sha256sum "${EWEOS_TARBALL}" | awk '{print $1}')"
-    [[ -n "${want}" && "${want}" == "${got}" ]] || fatal "eweOS tarball sha256 mismatch (want ${want}, got ${got})."
+  fi
+
+  if [[ -s "${EWEOS_TARBALL}" && -n "${want}" \
+        && "$(sha256sum "${EWEOS_TARBALL}" | awk '{print $1}')" == "${want}" ]]; then
+    log "eweOS tarball cache hit (sha256 OK)."
+    return 0
+  fi
+  [[ -s "${EWEOS_TARBALL}" && -n "${want}" ]] && log "Cached tarball stale (upstream rolled); re-downloading."
+
+  run rm -f "${EWEOS_TARBALL}"
+  aria2_download "${EWEOS_TARBALL_URL}" "${EWEOS_TARBALL}.tmp"
+  mv "${EWEOS_TARBALL}.tmp" "${EWEOS_TARBALL}"
+  if [[ -n "${want}" ]]; then
+    local got; got="$(sha256sum "${EWEOS_TARBALL}" | awk '{print $1}')"
+    [[ "${want}" == "${got}" ]] || fatal "eweOS tarball sha256 mismatch after fresh download (want ${want}, got ${got})."
     log "eweOS tarball sha256 OK."
   else
     warn "Could not fetch eweOS tarball .sha256; skipping checksum verification."
