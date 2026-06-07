@@ -37,11 +37,14 @@ static const unsigned char F_SP[7]={0,0,0,0,0,0,0};
 static const unsigned char F_DOT[7]={0,0,0,0,0,0x0C,0x0C};
 static const unsigned char F_PCT[7]={0x18,0x19,0x02,0x04,0x08,0x13,0x03};
 static const unsigned char F_COL[7]={0,0x04,0x04,0,0x04,0x04,0};       // ':'
+static const unsigned char F_DSH[7]={0,0,0,0x0E,0,0,0};                // '-'
+static const unsigned char F_SLA[7]={0x01,0x02,0x02,0x04,0x08,0x08,0x10}; // '/'
 static const unsigned char F_A[7]={0x0E,0x11,0x11,0x1F,0x11,0x11,0x11};
 static const unsigned char F_B[7]={0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E};
 static const unsigned char F_C[7]={0x0E,0x11,0x10,0x10,0x10,0x11,0x0E};
 static const unsigned char F_D[7]={0x1C,0x12,0x11,0x11,0x11,0x12,0x1C};
 static const unsigned char F_E[7]={0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F};
+static const unsigned char F_F[7]={0x1F,0x10,0x10,0x1E,0x10,0x10,0x10};
 static const unsigned char F_G[7]={0x0E,0x11,0x10,0x17,0x11,0x11,0x0E};
 static const unsigned char F_H[7]={0x11,0x11,0x11,0x1F,0x11,0x11,0x11};
 static const unsigned char F_I[7]={0x0E,0x04,0x04,0x04,0x04,0x04,0x0E};
@@ -65,11 +68,12 @@ static const unsigned char *glyph(char c){
 	if(c>='0'&&c<='9')return F_DIG[c-'0'];
 	switch(c){
 		case '.':return F_DOT; case '%':return F_PCT; case ':':return F_COL;
+		case '-':return F_DSH; case '/':return F_SLA;
 		case 'A':return F_A; case 'B':return F_B; case 'C':return F_C; case 'D':return F_D;
-		case 'E':return F_E; case 'G':return F_G; case 'H':return F_H; case 'I':return F_I;
-		case 'L':return F_L; case 'M':return F_M; case 'N':return F_N; case 'O':return F_O;
-		case 'P':return F_P; case 'R':return F_R; case 'S':return F_S; case 'T':return F_T;
-		case 'U':return F_U; case 'W':return F_W; }
+		case 'E':return F_E; case 'F':return F_F; case 'G':return F_G; case 'H':return F_H;
+		case 'I':return F_I; case 'L':return F_L; case 'M':return F_M; case 'N':return F_N;
+		case 'O':return F_O; case 'P':return F_P; case 'R':return F_R; case 'S':return F_S;
+		case 'T':return F_T; case 'U':return F_U; case 'W':return F_W; }
 	return F_SP; }
 
 static long now_us(void){ struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return t.tv_sec*1000000L+t.tv_nsec/1000; }
@@ -101,25 +105,32 @@ static void read_ips(void){ g_nips=0;
 		g_nips++; }
 	pclose(f); }
 
-static long mem_used_kb(void){ long total=0,avail=0,v; char line[128]; FILE*f=fopen("/proc/meminfo","r"); if(!f)return -1;
-	while(fgets(line,sizeof line,f)){ if(sscanf(line,"MemTotal: %ld",&v)==1)total=v; else if(sscanf(line,"MemAvailable: %ld",&v)==1)avail=v; }
-	fclose(f); if(total<=0)return -1; long used=total-avail; return used<0?0:used; }
+static void mem_kb(long*used,long*total){ long t=0,a=0,v; char line[128]; *used=*total=-1;
+	FILE*f=fopen("/proc/meminfo","r"); if(!f)return;
+	while(fgets(line,sizeof line,f)){ if(sscanf(line,"MemTotal: %ld",&v)==1)t=v; else if(sscanf(line,"MemAvailable: %ld",&v)==1)a=v; }
+	fclose(f); if(t<=0)return; *total=t; long u=t-a; *used=u<0?0:u; }
 static long uptime_s(void){ double u=0; FILE*f=fopen("/proc/uptime","r"); if(!f)return 0; if(fscanf(f,"%lf",&u)!=1)u=0; fclose(f); return (long)u; }
+static int loadavg(double*a,double*b,double*c){ FILE*f=fopen("/proc/loadavg","r"); if(!f)return 0;
+	int k=fscanf(f,"%lf %lf %lf",a,b,c); fclose(f); return k==3; }
+// kB → adaptive unit: <1000 MiB as integer M, else G with 1 decimal.
+static void fmt_kb(long kb,char*o,int n){ if(kb<0) snprintf(o,n,"--");
+	else if(kb < 1000L*1024) snprintf(o,n,"%ldM",(kb+512)/1024); else snprintf(o,n,"%.1fG",kb/1048576.0); }
 
-// Bottom-line stat pages, rotated one per (pair of) sweeps. The value is frozen
-// for the page's whole window so the scanned-in text stays internally coherent.
-// Pages 0..3 are fixed (CPU/RAM/clock/uptime); 4.. are one per NIC IPv4 address.
+// Bottom-line stat pages, rotated one PER sweep — each scan shows the next stat.
+// The value is frozen for the sweep so the scanned-in text stays coherent.
+// Pages 0..3 are fixed (load/RAM/datetime/uptime); 4.. are one per NIC IPv4 address.
 #define NFIXED 4
 static int npages(void){ return NFIXED + (g_nips>0?g_nips:1); }
-static void build_page(int page,char*o,int n,int cpu){
+static void build_page(int page,char*o,int n){
 	switch(page){
-		case 0: snprintf(o,n,"CPU %d%%",cpu); break;
-		// actual RAM in use, auto-scaled unit: <1000 MiB shown as M, else G (1 dp).
-		case 1: { long u=mem_used_kb();
-			if(u<0) snprintf(o,n,"RAM --");
-			else if(u < 1000L*1024) snprintf(o,n,"RAM %ldM",(u+512)/1024);
-			else snprintf(o,n,"RAM %.1fG",u/1048576.0); } break;
-		case 2: { time_t tt=time(NULL); struct tm lt; localtime_r(&tt,&lt); snprintf(o,n,"%02d:%02d",lt.tm_hour,lt.tm_min); } break;
+		// CPU as the uptime-style load average (1/5/15-min), not an instant percentage.
+		case 0: { double l1,l5,l15; if(loadavg(&l1,&l5,&l15)) snprintf(o,n,"LOAD %.2f %.2f %.2f",l1,l5,l15); else snprintf(o,n,"LOAD --"); } break;
+		// RAM: actual used / total, each auto-scaled (e.g. "RAM 148M/1.9G").
+		case 1: { long u,t; char a[16],b[16]; mem_kb(&u,&t); fmt_kb(u,a,sizeof a); fmt_kb(t,b,sizeof b); snprintf(o,n,"RAM %s/%s",a,b); } break;
+		// Date + time + weekday (e.g. "06-07 23:22 SAT").
+		case 2: { static const char*wd[7]={"SUN","MON","TUE","WED","THU","FRI","SAT"};
+			time_t tt=time(NULL); struct tm lt; localtime_r(&tt,&lt);
+			snprintf(o,n,"%02d-%02d %02d:%02d %s",lt.tm_mon+1,lt.tm_mday,lt.tm_hour,lt.tm_min,wd[lt.tm_wday%7]); } break;
 		case 3: { long up=uptime_s(); snprintf(o,n,"UP %ld:%02ld",up/3600,(up%3600)/60); } break;
 		default: { int k=page-NFIXED; if(k>=0&&k<g_nips) snprintf(o,n,"%s %s",g_ifs[k],g_ips[k]); else snprintf(o,n,"no-ip"); } break;
 	}
@@ -166,9 +177,9 @@ int main(void){
 	for(;;){
 		if(frame%12==0){ int c=cpu_pct(); if(c>=0)target=(float)c; }
 		if(frame%600==0) read_ips();   // re-enumerate NICs (a wlan0 may come/go)
-		// pick the bottom stat: one page per 2 sweeps; freeze its value on entry.
-		int np=(wraps/2)%npages();
-		if(np!=page){ page=np; build_page(page,pagebuf,sizeof pagebuf,(int)(target+0.5f)); }
+		// pick the bottom stat: a new page every sweep; freeze its value on entry.
+		int np=wraps%npages();
+		if(np!=page){ page=np; build_page(page,pagebuf,sizeof pagebuf); }
 		disp += (target-disp)*0.15f;
 		float bpm = 60.0f + disp*1.2f;           // CPU -> heart rate
 
