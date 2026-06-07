@@ -1,20 +1,20 @@
-// oled-dash: ECG heart-monitor style system display for the M28K 0.91" OLED
+// oled-dash: live system monitor for the M28K 0.91" OLED
 // (SSD1306 128x32 via the ssd130x DRM fbdev /dev/fb0, 32bpp emulation).
 //
-// A synthetic PQRST cardiac waveform is "drawn" by a left->right sweeping beam
-// with a blank erase gap chasing it (just like a hospital monitor). The heart
-// RATE tracks CPU load: idle ~60 BPM, full load ~180 BPM, so the box literally
-// "beats faster" when busy. The bottom line ROTATES through a different stat on
-// each sweep -- CPU%, RAM%, clock (HH:MM), uptime (UP h:mm), then the IPv4 -- so
-// every scan reveals fresh data (a page changes every 2 sweeps: the first sweep
-// scans the new value in, the second holds it steady & readable).
+// The whole 128x32 panel is Bongo Cat. The cat's paws tap the table at a rate set
+// by CPU load: idle (<8%) it sits and breathes (the 5 idle frames ping-pong);
+// busier, it taps -- faster the higher the load (the classic bongo-cat WPM gag).
+// The frames are the well-known 1-bit bongo cat (see bongo_frames.h), blitted
+// from their SSD1306 page layout each tick.
 //
-// The single beam paints the WHOLE column it passes: ECG trace, the dashed
-// separator, AND the current bottom stat -- so the text is revealed in lockstep
-// with the scan line and erased by the same chasing gap (it "scans" with the
-// beam). OLED burn-in care: every column is fully cleared & repainted
-// each sweep (no permanently-lit pixel), the ECG baseline drifts, the separator
-// dash phase and the text center slowly orbit, and the panel rests periodically.
+// In the empty bottom-right of the table a small status readout fades in & out
+// (4x4 Bayer ordered-dither, the 1-bit way to fade), cycling clock / load / RAM /
+// down / up / uptime. The frame is fully redrawn each tick and the panel rests
+// periodically (burn-in care).
+//
+// BOTTOM LINE rotates through a different stat every few seconds -- net speed
+// (v down / ^ up), load average, RAM used/total, date+time+weekday, uptime, then
+// each NIC's IPv4.
 //
 // Build:  cc -O2 -o oled-dash oled-dash.c -lm
 
@@ -28,6 +28,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <linux/fb.h>
+#include "bongo_frames.h"
 
 static int fbfd=-1; static unsigned char *fbp,*shadow; static int W,H,STRIDE; static long SZ;
 
@@ -58,6 +59,9 @@ static const unsigned char F_S[7]={0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E};
 static const unsigned char F_T[7]={0x1F,0x04,0x04,0x04,0x04,0x04,0x04};
 static const unsigned char F_U[7]={0x11,0x11,0x11,0x11,0x11,0x11,0x0E};
 static const unsigned char F_W[7]={0x11,0x11,0x11,0x15,0x15,0x1B,0x11};
+static const unsigned char F_K[7]={0x11,0x12,0x14,0x18,0x14,0x12,0x11};
+static const unsigned char F_UP[7]={0x04,0x0E,0x15,0x04,0x04,0x04,0x04};   // up arrow  (^ = upload)
+static const unsigned char F_DN[7]={0x04,0x04,0x04,0x04,0x15,0x0E,0x04};   // down arrow (v = download)
 static const unsigned char F_DIG[10][7]={
 	{0x0E,0x11,0x13,0x15,0x19,0x11,0x0E},{0x04,0x0C,0x04,0x04,0x04,0x04,0x0E},
 	{0x0E,0x11,0x01,0x02,0x04,0x08,0x1F},{0x1F,0x02,0x04,0x02,0x01,0x11,0x0E},
@@ -73,25 +77,28 @@ static const unsigned char *glyph(char c){
 		case 'E':return F_E; case 'F':return F_F; case 'G':return F_G; case 'H':return F_H;
 		case 'I':return F_I; case 'L':return F_L; case 'M':return F_M; case 'N':return F_N;
 		case 'O':return F_O; case 'P':return F_P; case 'R':return F_R; case 'S':return F_S;
-		case 'T':return F_T; case 'U':return F_U; case 'W':return F_W; }
+		case 'T':return F_T; case 'U':return F_U; case 'W':return F_W; case 'K':return F_K;
+		case '^':return F_UP; case 'v':return F_DN; }
 	return F_SP; }
 
 static long now_us(void){ struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return t.tv_sec*1000000L+t.tv_nsec/1000; }
 static void usleep_(long us){ if(us>0){ struct timespec t={us/1000000,(us%1000000)*1000}; nanosleep(&t,NULL);} }
 static void setpx(int x,int y,int on){ if(x<0||y<0||x>=W||y>=H)return; *(unsigned int*)(shadow+(long)y*STRIDE+(long)x*4)= on?0xFFFFFFFFu:0u; }
-static void colclear(int x,int y0,int y1){ for(int y=y0;y<=y1;y++) setpx(x,y,0); }
-static void vseg(int x,int ya,int yb){ if(ya>yb){int t=ya;ya=yb;yb=t;} for(int y=ya;y<=yb;y++) setpx(x,y,1); }
 static int  tw(const char*s){ int n=strlen(s); return n>0?n*6-1:0; }
 
 static void present(void){ memcpy(fbp,shadow,SZ); msync(fbp,SZ,MS_SYNC); }
 static void blank(int on){ if(fbfd>=0) ioctl(fbfd,FBIOBLANK,on?FB_BLANK_POWERDOWN:FB_BLANK_UNBLANK); }
 
+static void mem_kb(long*used,long*total){ long t=0,a=0,v; char line[128]; *used=*total=-1;
+	FILE*f=fopen("/proc/meminfo","r"); if(!f)return;
+	while(fgets(line,sizeof line,f)){ if(sscanf(line,"MemTotal: %ld",&v)==1)t=v; else if(sscanf(line,"MemAvailable: %ld",&v)==1)a=v; }
+	fclose(f); if(t<=0)return; *total=t; long u=t-a; *used=u<0?0:u; }
+// Instantaneous CPU utilisation 0..100 (drives the bongo cat's tap speed); -1 first call.
 static int cpu_pct(void){ static long pt=0,pi=0; long t=0,idle=0,u,n,s,i,io,ir,si,st; FILE*f=fopen("/proc/stat","r"); if(!f)return -1;
 	if(fscanf(f,"cpu %ld %ld %ld %ld %ld %ld %ld %ld",&u,&n,&s,&i,&io,&ir,&si,&st)==8){t=u+n+s+i+io+ir+si+st;idle=i+io;} fclose(f);
 	long dt=t-pt,di=idle-pi; pt=t; pi=idle; if(dt<=0)return -1; int p=(int)((dt-di)*100/dt); return p<0?0:(p>100?100:p); }
-// Every non-loopback IPv4 address with its NIC name (eth0, wlan0, …) — each becomes
-// its own rotating page, so a multi-homed box shows all of its interfaces in turn.
-// The name is upper-cased to match the font (and the all-caps CPU/RAM/UP labels).
+
+// Every non-loopback IPv4 with its (upper-cased) interface name.
 #define MAXIP 6
 static char g_ifs[MAXIP][12]; static char g_ips[MAXIP][24]; static int g_nips=0;
 static void read_ips(void){ g_nips=0;
@@ -105,50 +112,44 @@ static void read_ips(void){ g_nips=0;
 		g_nips++; }
 	pclose(f); }
 
-static void mem_kb(long*used,long*total){ long t=0,a=0,v; char line[128]; *used=*total=-1;
-	FILE*f=fopen("/proc/meminfo","r"); if(!f)return;
-	while(fgets(line,sizeof line,f)){ if(sscanf(line,"MemTotal: %ld",&v)==1)t=v; else if(sscanf(line,"MemAvailable: %ld",&v)==1)a=v; }
-	fclose(f); if(t<=0)return; *total=t; long u=t-a; *used=u<0?0:u; }
-static long uptime_s(void){ double u=0; FILE*f=fopen("/proc/uptime","r"); if(!f)return 0; if(fscanf(f,"%lf",&u)!=1)u=0; fclose(f); return (long)u; }
-static int loadavg(double*a,double*b,double*c){ FILE*f=fopen("/proc/loadavg","r"); if(!f)return 0;
-	int k=fscanf(f,"%lf %lf %lf",a,b,c); fclose(f); return k==3; }
 
-// Bottom-line stat pages, rotated one PER sweep — each scan shows the next stat.
-// The value is frozen for the sweep so the scanned-in text stays coherent.
-// Pages 0..3 are fixed (load/RAM/datetime/uptime); 4.. are one per NIC IPv4 address.
-#define NFIXED 4
-static int npages(void){ return NFIXED + (g_nips>0?g_nips:1); }
-static void build_page(int page,char*o,int n){
-	switch(page){
-		// CPU as the uptime-style load average (1/5/15-min), not an instant percentage.
-		case 0: { double l1,l5,l15; if(loadavg(&l1,&l5,&l15)) snprintf(o,n,"LOAD %.2f %.2f %.2f",l1,l5,l15); else snprintf(o,n,"LOAD --"); } break;
-		// RAM: used / total in ONE shared unit, picked from the total (both M, or
-		// both G with 2 dp) — e.g. "RAM 0.06/1.89G" or "RAM 63/512M".
-		case 1: { long u,t; mem_kb(&u,&t);
-			if(t<0) snprintf(o,n,"RAM --");
-			else if(t < 1000L*1024) snprintf(o,n,"RAM %ld/%ldM",(u+512)/1024,(t+512)/1024);
-			else snprintf(o,n,"RAM %.2f/%.2fG",u/1048576.0,t/1048576.0); } break;
-		// Date + time + weekday (e.g. "06-07 23:22 SAT").
-		case 2: { static const char*wd[7]={"SUN","MON","TUE","WED","THU","FRI","SAT"};
-			time_t tt=time(NULL); struct tm lt; localtime_r(&tt,&lt);
-			snprintf(o,n,"%02d-%02d %02d:%02d %s",lt.tm_mon+1,lt.tm_mday,lt.tm_hour,lt.tm_min,wd[lt.tm_wday%7]); } break;
-		// uptime as D h:mm:ss (drops the day field while under 24h): "UP 1D 03:45:12".
-		case 3: { long up=uptime_s(), d=up/86400, h=up/3600%24, m=up/60%60, s=up%60;
-			if(d>0) snprintf(o,n,"UP %ldD %02ld:%02ld:%02ld",d,h,m,s);
-			else    snprintf(o,n,"UP %ld:%02ld:%02ld",h,m,s); } break;
-		default: { int k=page-NFIXED; if(k>=0&&k<g_nips) snprintf(o,n,"%s %s",g_ifs[k],g_ips[k]); else snprintf(o,n,"no-ip"); } break;
-	}
+// Blit a 128x32 bongo-cat frame (SSD1306 page layout) into the shadow buffer:
+// byte i -> column i%128, page i/128; bit b lights row page*8+b.
+static void draw_bongo(int idx){
+	const unsigned char *f=BONGO[idx];
+	for(int i=0;i<512;i++){ unsigned char b=f[i]; if(!b)continue;
+		int col=i&127, base=(i>>7)*8;
+		for(int bit=0;bit<8;bit++) if(b&(1<<bit)) setpx(col,base+bit,1); }
 }
 
-// synthetic ECG (one cardiac cycle over phase t in [0,1)): P Q R S T
-static float ecg(float t){
-	float v=0;
-	v += 0.10f*expf(-((t-0.20f)*(t-0.20f))/(2*0.022f*0.022f));   // P
-	v += -0.14f*expf(-((t-0.37f)*(t-0.37f))/(2*0.012f*0.012f));  // Q
-	v += 1.00f*expf(-((t-0.40f)*(t-0.40f))/(2*0.011f*0.011f));   // R
-	v += -0.30f*expf(-((t-0.44f)*(t-0.44f))/(2*0.012f*0.012f));  // S
-	v += 0.30f*expf(-((t-0.62f)*(t-0.62f))/(2*0.035f*0.035f));   // T
-	return v;
+// Ordered-dither fade: draw a string at (x0,y0); alpha 0..1 ramps the pixels in
+// via an 8x8 Bayer threshold (64 levels -> a fine, even dissolve) on 1-bit.
+static const unsigned char BAYER8[8][8]={
+	{ 0,32, 8,40, 2,34,10,42},{48,16,56,24,50,18,58,26},
+	{12,44, 4,36,14,46, 6,38},{60,28,52,20,62,30,54,22},
+	{ 3,35,11,43, 1,33, 9,41},{51,19,59,27,49,17,57,25},
+	{15,47, 7,39,13,45, 5,37},{63,31,55,23,61,29,53,21}};
+static void draw_text_fade(const char*s,int x0,int y0,float a){
+	int th=(int)(a*65.0f); if(th<0)th=0; if(th>64)th=64;
+	int gx=x0;
+	for(const char*p=s;*p;p++,gx+=6){ const unsigned char*g=glyph(*p);
+		for(int r=0;r<7;r++) for(int c=0;c<5;c++)
+			if(g[r]&(1<<(4-c))){ int xx=gx+c,yy=y0+r;
+				if(xx>=0&&xx<W&&yy>=0&&yy<H && BAYER8[yy&7][xx&7]<th) setpx(xx,yy,1); } }
+}
+// Corner status, cycled with a fade: page 0 = used memory; pages 1.. = each NIC's
+// last two IPv4 octets, prefixed with the interface initial ("E100.221" eth0,
+// "W100.243" wlan0). statpages() is 1 + the number of addressed interfaces.
+static int statpages(void){ return 1 + g_nips; }
+static void shortstat(int p,char*o,int n){
+	if(p==0){ long u,t; mem_kb(&u,&t);
+		if(t<0) snprintf(o,n,"R--"); else snprintf(o,n,"R%ld",(u+512)/1024);   // used MB, no unit
+		return; }
+	int k=p-1;
+	if(k<0||k>=g_nips){ snprintf(o,n,"no-ip"); return; }
+	const char*ip=g_ips[k], *d2=0,*d1=0;
+	for(const char*q=ip;*q;q++) if(*q=='.'){ d2=d1; d1=q; }   // d2 = 2nd-to-last dot
+	snprintf(o,n,"%c%s", g_ifs[k][0]?g_ifs[k][0]:'?', d2?d2+1:ip);
 }
 
 int main(void){
@@ -160,73 +161,46 @@ int main(void){
 	shadow=malloc(SZ); if(!shadow)return 0;
 	(void)system("for v in /sys/class/vtconsole/vtcon*/bind; do grep -q 'frame buffer' \"$(dirname \"$v\")/name\" 2>/dev/null && echo 0 > \"$v\"; done 2>/dev/null");
 
-	const int TOP=0, BOT=22, SEP=23, TY=25;     // trace band / separator / text row
-	const float FPS=60.0f, PXPS=46.0f;          // beam paper speed (px/sec)
-	const int GAP=4;                            // blank erase gap ahead of beam
-	const float AMP=15.0f;                      // R-wave height in px
-	const int TROWS=7;                           // glyph rows in the text band
-
+	const float FPS=60.0f;                        // frame rate
 	memset(shadow,0,SZ);
-	read_ips();
-	cpu_pct(); blank(0);
+	blank(0);
 
-	float disp=0,target=0;                       // smoothed CPU for the rate
-	float headx=0, phase=0, blf=16;              // beam x, ecg phase, baseline (drifts)
-	int prevcol=-1, prevy=16;
-	unsigned char tcol[1024];                    // per-column bitmap of the bottom text
+	float disp=0,target=0;                        // smoothed CPU% -> bongo cat tap speed
+	char sb[24]={0}; int slast=-1; long sbuilt=-1000;              // cached corner-stat string
+	read_ips();
 	const long FRAME=(long)(1000000/FPS);
 	long frame=0, next=now_us();
-	int wraps=0, page=-1; char pagebuf[80];      // rotating bottom-line stat (per 2 sweeps)
+	static const int idleseq[8]={0,1,2,3,4,3,2,1};   // ping-pong through the idle frames
 
 	for(;;){
-		if(frame%12==0){ int c=cpu_pct(); if(c>=0)target=(float)c; }
+		// CPU load drives the cat. Idle (<8%): cycle the calm idle frames. Busy: the
+		// paws tap, faster the busier it is -- the classic bongo-cat WPM behaviour.
+		if(frame%8==0){ int c=cpu_pct(); if(c>=0) target=(float)c; }
+		disp+=(target-disp)*0.12f;
 		if(frame%600==0) read_ips();   // re-enumerate NICs (a wlan0 may come/go)
-		// pick the bottom stat: a new page every sweep; freeze its value on entry.
-		int np=wraps%npages();
-		if(np!=page){ page=np; build_page(page,pagebuf,sizeof pagebuf); }
-		disp += (target-disp)*0.15f;
-		float bpm = 60.0f + disp*1.2f;           // CPU -> heart rate
 
 		// periodic panel rest (burn-in): ~10s every 300s, not at boot
 		long sec=frame/(long)FPS;
 		if(frame>180 && sec%300>=290){ blank(1); usleep_(500000); frame+=30; next=now_us(); continue; }
 		blank(0);
 
-		// slow baseline drift (burn-in); within one sweep it's effectively constant
-		blf = 16.0f + 2.0f*sinf(frame*0.0016f);
-		int BL=(int)lroundf(blf);
+		int fr;
+		if(disp<8.0f) fr=idleseq[(frame/16)%8];                         // calm idle loop (breathing)
+		else { int period=(int)(15.0f-(disp-8.0f)*0.13f); if(period<3)period=3;   // tap interval (frames)
+			fr=((frame/period)&1)? BONGO_TAP0+1 : BONGO_TAP0; }         // alternate the two tap poses
 
-		// Rasterize the current stat page into a per-column bitmap (bit r = row TY+r).
-		// Its horizontal center slowly orbits a few px so the glyph pixels roam
-		// across the panel over time (burn-in). The beam below paints these
-		// columns in step with the sweep, so the text "scans" with the scan line.
-		memset(tcol,0,sizeof tcol);
-		{ int orbit=(int)lroundf(3.0f*sinf(frame*0.0010f));
-		  int x0=(W-tw(pagebuf))/2+orbit, gx=x0;
-		  for(const char*s=pagebuf; *s; s++,gx+=6){ const unsigned char*g=glyph(*s);
-			for(int r=0;r<TROWS;r++) for(int c=0;c<5;c++)
-				if(g[r]&(1<<(4-c))){ int xx=gx+c; if(xx>=0&&xx<W) tcol[xx]|=(unsigned char)(1<<r); } } }
-		int sepph=(int)(frame/20);                // dashed-separator phase drifts
+		memset(shadow,0,SZ);
+		draw_bongo(fr);
 
-		// advance the sweeping beam; it repaints the FULL column it crosses:
-		// ECG trace + dashed separator + bottom-text bits (all swept together).
-		float step = PXPS/FPS;
-		float newhead = headx + step;
-		float dphase = (bpm/60.0f)/PXPS;         // cycles advanced per pixel
-		int from=(int)headx, to=(int)newhead;
-		for(int ix=from+1; ix<=to; ix++){
-			phase += dphase; if(phase>=1.0f) phase-=1.0f;
-			int col=ix%W;
-			colclear(col,TOP,H-1);                       // erase the whole column
-			if(((col+sepph)&3)==0) setpx(col,SEP,1);     // dashed separator
-			unsigned char tb=tcol[col];                  // bottom text for this column
-			for(int r=0;r<TROWS;r++) if(tb&(1<<r)) setpx(col,TY+r,1);
-			int y=BL-(int)lroundf(ecg(phase)*AMP); if(y<TOP)y=TOP; if(y>BOT)y=BOT;
-			if(col==(prevcol+1)%W && col!=0) vseg(col,prevy,y); else setpx(col,y,1);
-			prevcol=col; prevy=y;
-		}
-		headx=newhead; if(headx>=W){ headx-=W; wraps++; }   // completed a full sweep
-		for(int g=1;g<=GAP;g++) colclear(((int)headx+g)%W,TOP,H-1);   // blank gap ahead (full column)
+		// fade-cycling status in the empty bottom-right of the table. The alpha ramp
+		// is smootherstep-eased (gentle ease-in/out, no abrupt edges) so the dither
+		// dissolve feels natural and silky.
+		{ const int FADE=48, HOLD=110, CYC=FADE*2+HOLD;
+		  int sp=(int)((frame/CYC)%statpages()), tt=(int)(frame%CYC);
+		  float r = tt<FADE ? (float)tt/FADE : (tt<FADE+HOLD ? 1.0f : (float)(CYC-tt)/FADE);
+		  float a = r*r*r*(r*(6.0f*r-15.0f)+10.0f);                 // smootherstep
+		  if(sp!=slast || frame-sbuilt>15){ shortstat(sp,sb,sizeof sb); slast=sp; sbuilt=frame; }
+		  draw_text_fade(sb,126-tw(sb),25,a); }
 
 		present();
 		next+=FRAME; long d=next-now_us(); if(d>0)usleep_(d); else next=now_us();
