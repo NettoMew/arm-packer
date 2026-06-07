@@ -112,9 +112,6 @@ static void mem_kb(long*used,long*total){ long t=0,a=0,v; char line[128]; *used=
 static long uptime_s(void){ double u=0; FILE*f=fopen("/proc/uptime","r"); if(!f)return 0; if(fscanf(f,"%lf",&u)!=1)u=0; fclose(f); return (long)u; }
 static int loadavg(double*a,double*b,double*c){ FILE*f=fopen("/proc/loadavg","r"); if(!f)return 0;
 	int k=fscanf(f,"%lf %lf %lf",a,b,c); fclose(f); return k==3; }
-// kB → adaptive unit: <1000 MiB as integer M, else G with 1 decimal.
-static void fmt_kb(long kb,char*o,int n){ if(kb<0) snprintf(o,n,"--");
-	else if(kb < 1000L*1024) snprintf(o,n,"%ldM",(kb+512)/1024); else snprintf(o,n,"%.1fG",kb/1048576.0); }
 
 // Bottom-line stat pages, rotated one PER sweep — each scan shows the next stat.
 // The value is frozen for the sweep so the scanned-in text stays coherent.
@@ -125,13 +122,20 @@ static void build_page(int page,char*o,int n){
 	switch(page){
 		// CPU as the uptime-style load average (1/5/15-min), not an instant percentage.
 		case 0: { double l1,l5,l15; if(loadavg(&l1,&l5,&l15)) snprintf(o,n,"LOAD %.2f %.2f %.2f",l1,l5,l15); else snprintf(o,n,"LOAD --"); } break;
-		// RAM: actual used / total, each auto-scaled (e.g. "RAM 148M/1.9G").
-		case 1: { long u,t; char a[16],b[16]; mem_kb(&u,&t); fmt_kb(u,a,sizeof a); fmt_kb(t,b,sizeof b); snprintf(o,n,"RAM %s/%s",a,b); } break;
+		// RAM: used / total in ONE shared unit, picked from the total (both M, or
+		// both G with 2 dp) — e.g. "RAM 0.06/1.89G" or "RAM 63/512M".
+		case 1: { long u,t; mem_kb(&u,&t);
+			if(t<0) snprintf(o,n,"RAM --");
+			else if(t < 1000L*1024) snprintf(o,n,"RAM %ld/%ldM",(u+512)/1024,(t+512)/1024);
+			else snprintf(o,n,"RAM %.2f/%.2fG",u/1048576.0,t/1048576.0); } break;
 		// Date + time + weekday (e.g. "06-07 23:22 SAT").
 		case 2: { static const char*wd[7]={"SUN","MON","TUE","WED","THU","FRI","SAT"};
 			time_t tt=time(NULL); struct tm lt; localtime_r(&tt,&lt);
 			snprintf(o,n,"%02d-%02d %02d:%02d %s",lt.tm_mon+1,lt.tm_mday,lt.tm_hour,lt.tm_min,wd[lt.tm_wday%7]); } break;
-		case 3: { long up=uptime_s(); snprintf(o,n,"UP %ld:%02ld",up/3600,(up%3600)/60); } break;
+		// uptime as D h:mm:ss (drops the day field while under 24h): "UP 1D 03:45:12".
+		case 3: { long up=uptime_s(), d=up/86400, h=up/3600%24, m=up/60%60, s=up%60;
+			if(d>0) snprintf(o,n,"UP %ldD %02ld:%02ld:%02ld",d,h,m,s);
+			else    snprintf(o,n,"UP %ld:%02ld:%02ld",h,m,s); } break;
 		default: { int k=page-NFIXED; if(k>=0&&k<g_nips) snprintf(o,n,"%s %s",g_ifs[k],g_ips[k]); else snprintf(o,n,"no-ip"); } break;
 	}
 }
