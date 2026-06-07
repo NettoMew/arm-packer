@@ -232,11 +232,36 @@ distro_add_wifi_iface() {
     run_sudo cp "${RESOURCES_DIR}/rootfs/etc/wpa_supplicant/wpa_supplicant.conf" \
       "${MOUNTPOINT_ROOT}/etc/wpa_supplicant/wpa_supplicant.conf"
   fi
+
+  # The eweOS rootfs ships an AUTO-ENABLED `wpa_supplicant -u` service (D-Bus mode,
+  # meant for connman) symlinked into /etc/dinit.d/boot.d. The AIC8800 vendor driver
+  # is single-instance, so that idle daemon grabs the radio at boot and blocks our
+  # `wlan` service. We don't run connman — `wlan` is the Wi-Fi path — so disable it.
+  run_sudo rm -f "${MOUNTPOINT_ROOT}/etc/dinit.d/boot.d/wpa_supplicant"
+
+  # AIC8800 quirk: `wpa_supplicant -B` (daemonize) reports "Successfully initialized"
+  # and exits 0, but the forked daemon immediately dies (its p2p-dev iface trips
+  # "nl80211: Registration to specific type not supported") — so no socket, no assoc.
+  # Run wpa_supplicant in the FOREGROUND under dinit supervision instead; udhcpc grabs
+  # the lease once associated. Verified on M28K (wlan0 associates + DHCPs + pings out).
+  run_sudo mkdir -p "${MOUNTPOINT_ROOT}/usr/local/sbin"
+  run_sudo tee "${MOUNTPOINT_ROOT}/usr/local/sbin/wlan-up" >/dev/null <<'EOF'
+#!/bin/sh
+# AIC8800 Wi-Fi bring-up: foreground wpa_supplicant (the -B daemon crashes on this
+# driver) supervised by dinit; udhcpc takes the lease, deduped across restarts.
+pkill -x wpa_supplicant 2>/dev/null
+rm -f /var/run/wpa_supplicant/wlan0
+( sleep 3; pgrep -f "udhcpc -i wlan0" >/dev/null 2>&1 || exec udhcpc -i wlan0 -b -t 0 -T 2 -A 5 ) &
+exec wpa_supplicant -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
+EOF
+  run_sudo chmod +x "${MOUNTPOINT_ROOT}/usr/local/sbin/wlan-up"
   run_sudo tee "${MOUNTPOINT_ROOT}/etc/dinit.d/wlan" >/dev/null <<'EOF'
 # Wi-Fi (AIC8800): set /etc/wpa_supplicant/wpa_supplicant.conf, then enable:
-#   ln -s /etc/dinit.d/wlan /etc/dinit.d/boot.d/wlan   (or: dinitctl enable wlan)
-type = scripted
-command = /bin/sh -c 'wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf && udhcpc -i wlan0 -b'
+#   dinitctl enable wlan   (symlinks this into /etc/dinit.d/boot.d/)
+type = process
+command = /usr/local/sbin/wlan-up
+restart = true
+restart-delay = 3.0
 depends-on: rc.target
 EOF
 }
