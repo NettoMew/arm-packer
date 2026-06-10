@@ -32,7 +32,7 @@ BUILD := scripts/build.sh
         m28k m28k-screen m28k-noscreen \
         rock5c rock5c-stock \
         opiz3 \
-        hinlink-h88k hinlink-h88k-screen hinlink-h88k-noscreen \
+        hinlink-h88k hinlink-h88k-noscreen hinlink-h88k-noscreen-dry \
         clean
 
 help:
@@ -45,8 +45,8 @@ help:
 	@echo '  rock5c          Radxa ROCK 5C         (RK3588S2/RK3582，默认开核)'
 	@echo '  rock5c-stock    Radxa ROCK 5C         原厂分级 (ROCK5C_UNLOCK=0)'
 	@echo '  opiz3           Orange Pi Zero 3      (Allwinner H618)'
-	@echo '  hinlink-h88k    Hinlink H88K          (RK3588，含 240x135 LCD，= -screen)'
-	@echo '  hinlink-h88k-noscreen  同上，无屏版    (H88K_LCD=0)'
+	@echo '  hinlink-h88k    Hinlink H88K          (RK3588，纯净无屏主线基线)'
+	@echo '  hinlink-h88k-noscreen  同上，无屏别名  (H88K_LCD=0)'
 	@echo
 	@echo '  all             依次构建全部板子'
 	@echo '  clean           删除 out/ 成品镜像'
@@ -73,14 +73,15 @@ rock5c-stock:
 opiz3:
 	BOARD=opiz3 $(BUILD)
 
-hinlink-h88k hinlink-h88k-screen:
-	BOARD=hinlink-h88k H88K_LCD=1 $(BUILD)
-
-hinlink-h88k-noscreen:
+hinlink-h88k hinlink-h88k-noscreen:
 	BOARD=hinlink-h88k H88K_LCD=0 $(BUILD)
 
-# 依次构建每个机型 + 每个版本（任一失败即停）。有屏/无屏镜像名不同，不会互相覆盖。
-all: e20c m28k-screen m28k-noscreen rock5c opiz3 hinlink-h88k-screen hinlink-h88k-noscreen
+# 依次构建每个机型（任一失败即停）。H88K 当前使用纯净无屏基线。
+all: e20c m28k-screen m28k-noscreen rock5c opiz3 hinlink-h88k
+
+# H88K 纯净版：noscreen 是 hinlink-h88k 的兼容别名。
+hinlink-h88k-noscreen-dry:
+	BOARD=hinlink-h88k H88K_LCD=0 $(BUILD) --dry-run
 
 # make <板>-dry：只解析配置、打印片段与钩子，不构建（秒级，无需联网/sudo）。
 %-dry:

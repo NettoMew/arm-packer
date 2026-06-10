@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # lib/vendor/rockchip.sh — Rockchip boot-chain plugin.
 #
-# Prebuilt rkbin DDR(ROCKCHIP_TPL) + BL31 blobs → u-boot-rockchip.bin written at
-# sector 64 on a GPT disk. Sourced by scripts/build.sh after lib/env.sh; defines
+# Prebuilt rkbin DDR + BL31 blobs feed either mainline combined u-boot-rockchip.bin
+# or a board-selected split idbloader.img + u-boot.itb flow. Sourced by
+# scripts/build.sh after lib/env.sh; defines
 # the vendor_* contract the engine calls (no `if vendor==…` left in lib/).
 
 # rkbin DDR init (ROCKCHIP_TPL) + BL31 (ATF) blobs, one pair per SoC. Versions
@@ -51,12 +52,22 @@ vendor_build_firmware() { return 0; }
 
 # Extra `make` args fed to the U-Boot build (one per line).
 vendor_uboot_make_args() {
-  printf '%s\n' "BL31=${RKBIN_DIR}/${BL31_BIN}" "ROCKCHIP_TPL=${RKBIN_DIR}/${TPL_BIN}"
+  if [[ "${ROCKCHIP_SPL_BLOBS:-0}" == "1" ]]; then
+    # Armbian's spl-blobs flow builds SPL plus the FIT payload explicitly, then
+    # the board hook packs DDR+SPL into idbloader.img.  A plain `make BL31=...`
+    # may stop after SPL/TPL on Radxa U-Boot, leaving no u-boot.itb to write.
+    printf '%s\n'       "BL31=${RKBIN_DIR}/${BL31_BIN}"       "spl/u-boot-spl.bin"       "u-boot.dtb"       "u-boot.itb"
+  else
+    printf '%s\n' "BL31=${RKBIN_DIR}/${BL31_BIN}" "ROCKCHIP_TPL=${RKBIN_DIR}/${TPL_BIN}"
+  fi
 }
 
 # Assert + name the U-Boot artifact.
 vendor_uboot_output() {
-  if [[ -f "${UBOOT_DIR}/u-boot-rockchip.bin" ]]; then
+  if [[ "${ROCKCHIP_SPL_BLOBS:-0}" == "1" ]]; then
+    [[ -f "${UBOOT_DIR}/idbloader.img" && -f "${UBOOT_DIR}/u-boot.itb" ]] || fatal "U-Boot split output missing. Expected idbloader.img + u-boot.itb."
+    log "U-Boot split images: idbloader.img + u-boot.itb"
+  elif [[ -f "${UBOOT_DIR}/u-boot-rockchip.bin" ]]; then
     log "U-Boot combined image: ${UBOOT_DIR}/u-boot-rockchip.bin"
   elif [[ -f "${UBOOT_DIR}/idbloader.img" && -f "${UBOOT_DIR}/u-boot.itb" ]]; then
     log "U-Boot split images: idbloader.img + u-boot.itb"
@@ -71,7 +82,10 @@ vendor_partition_table() { printf 'gpt\n'; }
 # Write the bootloader into the image's reserved sectors.
 vendor_write_bootloader() {
   section "Writing Rockchip bootloader into reserved sectors"
-  if [[ -f "${UBOOT_DIR}/u-boot-rockchip.bin" ]]; then
+  if [[ "${ROCKCHIP_SPL_BLOBS:-0}" == "1" ]]; then
+    [[ -f "${UBOOT_DIR}/idbloader.img" && -f "${UBOOT_DIR}/u-boot.itb" ]] || fatal "U-Boot split output missing. Expected idbloader.img + u-boot.itb."
+    log "U-Boot split images: idbloader.img + u-boot.itb"
+  elif [[ -f "${UBOOT_DIR}/u-boot-rockchip.bin" ]]; then
     log "Writing combined u-boot-rockchip.bin at sector ${BOOTLOADER_SEEK_SECTOR}"
     run dd if="${UBOOT_DIR}/u-boot-rockchip.bin" of="${IMAGE_PATH}" bs=512 seek="${BOOTLOADER_SEEK_SECTOR}" conv=notrunc status=progress
   else
@@ -100,4 +114,8 @@ vendor_firmware_extras() {
 }
 
 # One-line boot-chain summary for the environment banner.
-vendor_env_summary() { log "Blobs: rkbin BL31=${BL31_BIN} TPL=${TPL_BIN}"; }
+vendor_env_summary() {
+  local layout="combined"
+  [[ "${ROCKCHIP_SPL_BLOBS:-0}" == "1" ]] && layout="split-spl-blobs"
+  log "Blobs: rkbin BL31=${BL31_BIN} TPL=${TPL_BIN} layout=${layout}"
+}

@@ -161,7 +161,7 @@
 		vin-supply = <&vcc_3v3_s3>;
 		startup-delay-us = <500000>;
 		pinctrl-names = "default";
-		pintctrl-0 = <&modem_reset_en>;
+		pinctrl-0 = <&modem_reset_en>;
 	};
 
 	vcc3v3_modem: vcc3v3-modem {
@@ -174,7 +174,7 @@
 		regulator-max-microvolt = <3300000>;
 		regulator-name = "vcc3v3_modem";
 		pinctrl-names = "default";
-		pintctrl-0 = <&modem_power_en>;
+		pinctrl-0 = <&modem_power_en>;
 		vin-supply = <&vcc_3v3_s3>;
 	};
 
