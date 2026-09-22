@@ -6,8 +6,8 @@
 # u-boot-sunxi-with-spl.bin written at 8 KiB on an MBR disk. Defines the same
 # vendor_* contract as lib/vendor/rockchip.sh.
 
-ATF_REPO="${ATF_REPO:-https://github.com/ARM-software/arm-trusted-firmware.git}"
-ATF_REF="${ATF_REF:-master}"
+ATF_REPO="${ATF_REPO:-${DEFAULT_ATF_REPO}}"
+ATF_REF="${ATF_REF:-${DEFAULT_ATF_REF}}"
 ATF_PLAT="${ATF_PLAT:-sun50i_h616}"
 ATF_DIR="${SRC_DIR}/arm-trusted-firmware"
 ATF_BL31_BIN="${ATF_DIR}/build/${ATF_PLAT}/release/bl31.bin"

@@ -113,16 +113,25 @@ finalize_image() {
   run ls -lh "${IMAGE_PATH}"
 }
 
-compress_image() {
+compress_image() (
   [[ "${COMPRESS_IMAGE}" == "1" ]] || { log "Image compression disabled (COMPRESS_IMAGE=0)."; return 0; }
-  section "Compressing image to .zst"
-  command -v zstd >/dev/null 2>&1 || { warn "zstd not found; leaving raw .img in place."; return 0; }
-  local out="${IMAGE_PATH}.zst"
-  rm -f "${out}"
-  # -19 = high ratio (zstd's practical "best"; far faster than xz -9 at a similar
-  # size on these mostly-sparse ext4 images), -T0 = all cores, --rm removes the raw
-  # .img on success keeping only the .zst. Decompresses with a plain `zstd -dc`.
-  run zstd -19 -T0 -f --rm "${IMAGE_PATH}"
+  section "Compressing image to .xz (balenaEtcher compatible)"
+  command -v xz >/dev/null 2>&1 || fatal "xz is required for image packaging; raw .img retained."
+  local out="${IMAGE_PATH}.xz" tmp
+  tmp="$(mktemp "${out}.tmp.XXXXXX")" || fatal "Could not create temporary XZ output."
+  # Subshell-local cleanup: don't replace the build's mount/loop cleanup trap.
+  trap 'rm -f -- "${tmp}"' EXIT
+  # Standard XZ/LZMA2 + CRC64; preset 6 needs only an 8 MiB decode dictionary.
+  # Keep the raw image and any previous package until compression AND testing pass.
+  if ! run xz --format=xz --check=crc64 -T0 -6 --stdout -- "${IMAGE_PATH}" > "${tmp}"; then
+    fatal "XZ compression failed; raw image and previous package retained."
+  fi
+  if ! run xz --format=xz --test -- "${tmp}"; then
+    fatal "XZ integrity check failed; raw image and previous package retained."
+  fi
+  run chmod --reference="${IMAGE_PATH}" "${tmp}" || fatal "Could not preserve image permissions; raw image retained."
+  run mv -f -- "${tmp}" "${out}" || fatal "Could not publish XZ package; raw image retained."
+  run rm -- "${IMAGE_PATH}"
   log "Packaged: ${out} ($(du -h "${out}" | cut -f1)); raw .img removed."
   run ls -lh "${out}"
-}
+)

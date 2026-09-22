@@ -1,5 +1,5 @@
 diff --git a/src/USB/driver_fw/drivers/aic8800/aic8800_fdrv/rwnx_main.c b/src/USB/driver_fw/drivers/aic8800/aic8800_fdrv/rwnx_main.c
-index 3245ecf..be32b77 100644
+index 3245ecf..13fbd49 100644
 --- a/src/USB/driver_fw/drivers/aic8800/aic8800_fdrv/rwnx_main.c
 +++ b/src/USB/driver_fw/drivers/aic8800/aic8800_fdrv/rwnx_main.c
 @@ -2941,13 +2941,14 @@ bool key_flag = false;
@@ -171,7 +171,26 @@ index 3245ecf..be32b77 100644
  {
      #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0)
      struct wireless_dev *wdev = NULL;
-@@ -5878,7 +5885,7 @@ int rwnx_fill_station_info(struct rwnx_sta *sta, struct rwnx_vif *vif,
+@@ -4754,8 +4761,17 @@ rwnx_cfg80211_remain_on_channel(struct wiphy *wiphy,
+                             #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0)
+                                 enum nl80211_channel_type channel_type,
+                             #endif
+-                                unsigned int duration, u64 *cookie)
++                                unsigned int duration, u64 *cookie
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 2, 0)
++                                , const u8 *rx_addr
++#endif
++                                )
+ {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 2, 0)
++    /* Firmware has no ROC address filter; do not advertise that capability. */
++    if (rx_addr)
++        return -EOPNOTSUPP;
++#endif
+ 	return rwnx_cfg80211_remain_on_channel_(wiphy,
+                             #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
+                                 wdev,
+@@ -5878,7 +5894,7 @@ int rwnx_fill_station_info(struct rwnx_sta *sta, struct rwnx_vif *vif,
   * @get_station: get station information for the station identified by @mac
   */
  static int rwnx_cfg80211_get_station(struct wiphy *wiphy,
@@ -180,7 +199,7 @@ index 3245ecf..be32b77 100644
  #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 16, 0))
  	u8 *mac,
  #else
-@@ -5886,6 +5893,7 @@ static int rwnx_cfg80211_get_station(struct wiphy *wiphy,
+@@ -5886,6 +5902,7 @@ static int rwnx_cfg80211_get_station(struct wiphy *wiphy,
  #endif
  	struct station_info *sinfo)
  {
@@ -188,7 +207,7 @@ index 3245ecf..be32b77 100644
      struct rwnx_vif *vif = netdev_priv(dev);
      struct rwnx_sta *sta = NULL;
  
-@@ -5919,9 +5927,10 @@ static int rwnx_cfg80211_get_station(struct wiphy *wiphy,
+@@ -5919,9 +5936,10 @@ static int rwnx_cfg80211_get_station(struct wiphy *wiphy,
  /**
   * @dump_station: dump station callback -- resume dump at index @idx
   */
@@ -200,6 +219,19 @@ index 3245ecf..be32b77 100644
      struct rwnx_vif *rwnx_vif = netdev_priv(dev);
      //struct rwnx_hw *rwnx_hw = wiphy_priv(wiphy);
      struct rwnx_sta *sta_iter, *sta = NULL;
+diff --git a/src/USB/driver_fw/drivers/aic8800/aic8800_fdrv/rwnx_msg_tx.c b/src/USB/driver_fw/drivers/aic8800/aic8800_fdrv/rwnx_msg_tx.c
+index b977555..9fb0845 100644
+--- a/src/USB/driver_fw/drivers/aic8800/aic8800_fdrv/rwnx_msg_tx.c
++++ b/src/USB/driver_fw/drivers/aic8800/aic8800_fdrv/rwnx_msg_tx.c
+@@ -4849,7 +4849,7 @@ int rwnx_send_dbg_trigger_req(struct rwnx_hw *rwnx_hw, char *msg)
+         return -ENOMEM;
+ 
+     /* Set parameters for the MM_DBG_TRIGGER_REQ message */
+-    strncpy(req->error, msg, sizeof(req->error));
++    strscpy_pad(req->error, msg, sizeof(req->error));
+ 
+     /* Send the MM_DBG_TRIGGER_REQ message to LMAC FW */
+     return rwnx_send_msg(rwnx_hw, req, 0, -1, NULL);
 diff --git a/src/USB/driver_fw/drivers/aic8800/aic8800_fdrv/rwnx_rx.c b/src/USB/driver_fw/drivers/aic8800/aic8800_fdrv/rwnx_rx.c
 index 5ed6811..0c5e77e 100644
 --- a/src/USB/driver_fw/drivers/aic8800/aic8800_fdrv/rwnx_rx.c

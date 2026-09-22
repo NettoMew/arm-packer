@@ -32,8 +32,7 @@ BUILD := scripts/build.sh
         m28k m28k-screen m28k-noscreen \
         rock5c rock5c-stock \
         opiz3 \
-        hinlink-h88k hinlink-h88k-noscreen hinlink-h88k-noscreen-dry \
-        clean
+        clean kernel-version kernel-check kernel-build kernel-promote test-kernel test-swupdate test-image
 
 help:
 	@echo '主线 Alpine 固件构建器 —— make <目标>'
@@ -45,14 +44,19 @@ help:
 	@echo '  rock5c          Radxa ROCK 5C         (RK3588S2/RK3582，默认开核)'
 	@echo '  rock5c-stock    Radxa ROCK 5C         原厂分级 (ROCK5C_UNLOCK=0)'
 	@echo '  opiz3           Orange Pi Zero 3      (Allwinner H618)'
-	@echo '  hinlink-h88k    Hinlink H88K          (RK3588，纯净无屏主线基线)'
-	@echo '  hinlink-h88k-noscreen  同上，无屏别名  (H88K_LCD=0)'
 	@echo
 	@echo '  all             依次构建全部板子'
 	@echo '  clean           删除 out/ 成品镜像'
+	@echo '  kernel-version  显示集中配置的默认内核版本'
+	@echo '  kernel-check    独立验证补丁/配置/DTB（BOARD=... KERNEL_REF=vX.Y.Z）'
+	@echo '  kernel-build    独立编译候选内核及树外驱动（同上）'
+	@echo '  kernel-promote  真机测试后更新默认版本（REPORT=... HARDWARE_TESTED=1）'
+	@echo '  test-kernel     离线回归测试（不编译真实内核）'
+	@echo '  test-swupdate   更新工具配置/密钥预检回归（不安装）'
+	@echo '  test-image      XZ 打包与失败保护回归（不写磁盘设备）'
 	@echo
 	@echo
-	@echo '发行版（DISTRO，默认 alpine）：DISTRO=archlinux make <板> 产出 *-archlinux-*.img'
+	@echo '发行版（DISTRO，默认 alpine）：DISTRO=archlinux make <板> 产出 *-archlinux-*.img.xz'
 	@echo '透传开关示例： make rock5c ROCK5C_UNLOCK=0 / DISTRO=archlinux make opiz3 / make opiz3 SKIP_FETCH=1'
 
 e20c:
@@ -73,19 +77,34 @@ rock5c-stock:
 opiz3:
 	BOARD=opiz3 $(BUILD)
 
-hinlink-h88k hinlink-h88k-noscreen:
-	BOARD=hinlink-h88k H88K_LCD=0 $(BUILD)
-
-# 依次构建每个机型（任一失败即停）。H88K 当前使用纯净无屏基线。
-all: e20c m28k-screen m28k-noscreen rock5c opiz3 hinlink-h88k
-
-# H88K 纯净版：noscreen 是 hinlink-h88k 的兼容别名。
-hinlink-h88k-noscreen-dry:
-	BOARD=hinlink-h88k H88K_LCD=0 $(BUILD) --dry-run
+# 依次构建每个机型（任一失败即停）。
+all: e20c m28k-screen m28k-noscreen rock5c opiz3
 
 # make <板>-dry：只解析配置、打印片段与钩子，不构建（秒级，无需联网/sudo）。
 %-dry:
 	BOARD=$* $(BUILD) --dry-run
 
+kernel-version:
+	bash scripts/kernel-update.sh show
+
+kernel-check:
+	bash scripts/kernel-update.sh check
+
+kernel-build:
+	bash scripts/kernel-update.sh build
+
+kernel-promote:
+	bash scripts/kernel-update.sh promote
+
+test-kernel:
+	bash scripts/test-kernel-config.sh
+	bash scripts/test-kernel-update.sh
+
+test-swupdate:
+	bash scripts/test-swupdate-config.sh
+
+test-image:
+	bash scripts/test-image-compression.sh
+
 clean:
-	rm -f out/*.img out/*.img.zst out/*.img.zst.sha256
+	rm -f out/*.img out/*.img.xz out/*.img.xz.sha256 out/*.img.zst out/*.img.zst.sha256

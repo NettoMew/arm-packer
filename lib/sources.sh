@@ -38,7 +38,7 @@ git_clone_or_refresh_shallow() {
 }
 
 # Finalize the output image name now that the kernel version is known:
-# <prefix>-<distro>-<kernelversion>.img (e.g. radxa-rock5c-archlinux-7.1.0-rc6.img).
+# <prefix>-<distro>-<kernelversion>.img.
 # A user-pinned IMAGE_NAME is respected as-is.
 finalize_image_name() {
   if [[ -z "${IMAGE_NAME}" ]]; then
@@ -65,25 +65,19 @@ reset_shared_trees() {
   # Reset the shared U-Boot tree to pristine first, so a per-board U-Boot patch
   # (e.g. the rock5c rk3582 unlock) never carries over to another board.
   if [[ -d "${UBOOT_DIR}/.git" ]]; then
-    # U-Boot trees are shared across boards and may contain generated, untracked
-    # build directories.  Some vendor trees (Radxa RK3588) have broken make clean
-    # rules that try to `rm boot` even when `boot/` is a directory, so reset the
-    # source tree with git instead of relying on U-Boot clean targets.
-    run git -C "${UBOOT_DIR}" reset --hard || true
-    run git -C "${UBOOT_DIR}" clean -ffdx || true
+    run git -C "${UBOOT_DIR}" checkout -- . || true
   fi
   # Reset the shared kernel tree and strip any m28k DTS from a previous build so
   # the result is order-independent (the m28k hook re-adds its own).
   if [[ -d "${KERNEL_SRC_DIR}/.git" ]]; then
     run git -C "${KERNEL_SRC_DIR}" checkout -- . || true
     rm -f "${KERNEL_SRC_DIR}/arch/arm64/boot/dts/rockchip/rk3528-mangopi-m28"*.dts* 2>/dev/null || true
-    rm -f "${KERNEL_SRC_DIR}/arch/arm64/boot/dts/rockchip/rk3588-hinlink-h88k"*.dts* 2>/dev/null || true
   fi
 }
 
 fetch_sources() {
   # Reset the shared U-Boot/kernel trees to pristine BEFORE any fetch/checkout: a
-  # prior board leaves tracked edits behind (h88k appends its dtb to the rockchip
+  # prior board leaves tracked edits behind (m28k appends its dtb to the rockchip
   # Makefile; rock5c patches U-Boot), and those edits would otherwise block this
   # board's `git checkout -B <ref> FETCH_HEAD` / `git pull --ff-only`
   # ("local changes would be overwritten"). Order-independent across boards.

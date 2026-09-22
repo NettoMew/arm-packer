@@ -9,7 +9,9 @@ board/vendor/distro 的 `if` 分支**——差异全在插件/配置里。加一
 - 等价 `BOARD=rock5c DISTRO=archlinux scripts/build.sh`。
 - `make <board>-dry` / `scripts/build.sh --dry-run`：只解析配置、打印片段/钩子/镜像名，**不构建、不联网、不 sudo**（秒级，验证改动的首选）。
 - `scripts/build.sh --stop-after-kconfig`：编到内核 `.config` 就停（用于对比 `.config`）。
-- 以普通用户跑；需要 root 的步骤自动 `sudo`。成品在 `out/`，镜像名 `<前缀>-<distro>-<内核版本>.img.zst`。
+- 默认源码版本集中在 `config/versions.conf`；`make kernel-check/kernel-build BOARD=... KERNEL_REF=vX.Y.Z`
+  使用全新独立验证工作区，不取 U-Boot/固件、不做 rootfs。`kernel-promote` 需成功 build 报告与人工真机确认，见 `docs/kernel-updates.md`。
+- 以普通用户跑；需要 root 的步骤自动 `sudo`。成品在 `out/`，镜像名 `<前缀>-<distro>-<内核版本>.img.xz`。
 
 ## 目录 / 职责
 ```
@@ -39,6 +41,8 @@ work/  out/                          源码树工作区 / 成品
   `_adapt_local_d`：把板子 `files/` 覆盖进来的 OpenRC `/etc/local.d/*.start` 在 systemd 发行版上转成 oneshot 单元（Alpine no-op）。
 - **board_\* 钩子**（可选）：`board_inject_sources / _build_modules / _install_modules /
   _install_userspace / _configure_runtime / _install_extras`；pipeline 用 `board_hook <name>` 调，未定义即 no-op。
+  源码注入按 `board_inject_uboot_sources / board_inject_kernel_sources / board_prepare_modules` 拆分，
+  `board_inject_sources` 为完整镜像入口组合；独立内核验证只调用 kernel/modules 两类钩子。
 
 ## 关键约定 / 易踩坑（重要）
 - **全局 `IFS=$'\n\t'`（不含空格）**：任何 `for x in $空格分隔列表` 都**不会按空格切分**！必须
@@ -63,7 +67,8 @@ work/  out/                          源码树工作区 / 成品
 
 ## 验证手段
 - 改完先 `bash -n` 全部脚本 + 各板 `--dry-run`（看 vendor/SoC、分区表、片段列表与顺序、钩子、镜像名、IMAGE_SIZE）。
-- 真验证镜像：`zstd -dc out/X.img.zst | sudo losetup -fP …` 挂载抽查（firmware、keyring、grow 单元、hostname、modules 大小）。
+- 真验证镜像：先 `xz -dk out/X.img.xz`，再 `sudo losetup --read-only -fP --show out/X.img` 只读挂载抽查（firmware、keyring、grow 单元、hostname、modules 大小）。
+- `make test-image`：真实 XZ 压缩/解压、禁用压缩及失败保留旧包/原图回归，不写磁盘设备。
 - 内核语义无损：`--stop-after-kconfig` 后 diff 新旧 `.config`。
 
 ## 加新东西

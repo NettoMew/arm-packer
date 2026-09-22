@@ -1,0 +1,42 @@
+# Built by scripts/build-swupdate-apks.sh; defaults live in config/versions.conf.
+pkgname=swupdate
+pkgver=$SWUPDATE_VERSION
+pkgrel=0
+pkgdesc="Signed offline embedded updates (arm-packer minimal profile)"
+url="https://github.com/sbabic/swupdate"
+arch="aarch64"
+license="GPL-2.0-only"
+makedepends="linux-headers bsd-compat-headers python3 zlib-dev libconfig-dev openssl-dev json-c-dev libarchive-dev libubootenv-dev"
+source="$pkgname-$pkgver.tar.gz::https://github.com/sbabic/swupdate/archive/$SWUPDATE_COMMIT.tar.gz
+    swupdate.fragment"
+builddir="$srcdir/swupdate-$SWUPDATE_COMMIT"
+sha512sums="$SWUPDATE_SHA512  $pkgname-$pkgver.tar.gz
+    $SWUPDATE_CONFIG_SHA512  swupdate.fragment"
+
+build() {
+    cd "$builddir"
+    KCONFIG_ALLCONFIG="$srcdir/swupdate.fragment" make allnoconfig
+    # Fail closed if upstream changes silently disable the requested security.
+    for option in SIGNED_IMAGES HASH_VERIFY SIGALG_RSAPSS HW_COMPATIBILITY ARCHIVE SHELLSCRIPTHANDLER; do
+        grep -qx "CONFIG_$option=y" .config || return 1
+    done
+    for option in SIGALG_RAWRSA UBOOT RAW MTD WEBSERVER DOWNLOAD SURICATTA SYSTEMD; do
+        if grep -qx "CONFIG_$option=y" .config; then
+            echo "Unexpected enabled option: $option" >&2
+            return 1
+        fi
+    done
+    make -j "${JOBS:-2}"
+}
+
+check() {
+    LD_LIBRARY_PATH="$builddir" "$builddir/swupdate" -h >/dev/null
+}
+
+package() {
+    install -Dm755 "$builddir/swupdate" "$pkgdir/usr/sbin/swupdate"
+    # Upstream links its IPC library dynamically even without a daemon.
+    install -Dm755 "$builddir/libswupdate.so.0.1" "$pkgdir/usr/lib/libswupdate.so.0.1"
+    install -Dm644 "$builddir/.config" "$pkgdir/usr/share/arm-packer/swupdate.config"
+    install -Dm644 "$builddir/LICENSES/GPL-2.0-only.txt" "$pkgdir/usr/share/licenses/swupdate/COPYING"
+}

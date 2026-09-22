@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # boards/m28k/hooks.sh — Widora MangoPi M28K (RK3528) board hooks.
 #
-# Injects the board's U-Boot/Linux DTS + defconfig + RK3528 USB backport patches,
+# Injects the board's U-Boot/Linux DTS + defconfig + RK3528 USB backports if needed,
 # wires the AIC8800 (SDIO) Wi-Fi/BT driver via lib/aic8800.sh, and installs the
 # optional OLED ECG dashboard.
 
@@ -14,8 +14,8 @@ AIC8800_PATCH="aic8800/0001-aic8800-sdio-mainline-7.1-port.patch"
 # shellcheck source=/dev/null
 source "${LIB_DIR}/aic8800.sh"
 
-board_inject_sources() {
-  section "Injecting Widora MangoPi M28K board sources"
+board_inject_uboot_sources() {
+  section "Injecting Widora MangoPi M28K U-Boot sources"
   local assets="${BOARD_ASSETS}/m28k"
   [[ -d "${assets}" ]] || fatal "Board assets missing: ${assets}"
 
@@ -26,13 +26,32 @@ board_inject_sources() {
   run cp -f "${assets}/uboot/dts/rk3528-mangopi-m28k.dts"  "${ub_dts_dir}/"
   run cp -f "${assets}/uboot/dtsi/rk3528-mangopi-m28k-u-boot.dtsi" "${UBOOT_DIR}/arch/arm/dts/"
   run cp -f "${assets}/uboot/configs/mangopi-m28k-rk3528_defconfig" "${UBOOT_DIR}/configs/"
+}
 
-  # --- Linux: reset tree, apply RK3528 USB backport, drop in board DTS --------
+board_inject_kernel_sources() {
+  local assets="${BOARD_ASSETS}/m28k"
+  # --- Linux: reset tree, apply needed board patches, drop in board DTS ------
   local lx_dts_dir="${KERNEL_SRC_DIR}/arch/arm64/boot/dts/rockchip"
-  section "Applying RK3528 USB backport patches to mainline Linux"
+  section "Applying M28K kernel patches"
   run git -C "${KERNEL_SRC_DIR}" checkout -- .
+  # Linux 7.2.7 already provides the RK3528 PHY driver and USB DT nodes. The
+  # older USB series (including its prerequisite PHY refactors) conflicts with
+  # that implementation. Detect the capability, not KERNEL_REF, so custom refs
+  # and older kernels still work. M28K uses host ports, not Type-C VBUS detection.
+  local native_usb=0
+  if grep -q '"rockchip,rk3528-usb2phy"' "${KERNEL_SRC_DIR}/drivers/phy/rockchip/phy-rockchip-inno-usb2.c" &&
+     grep -q '"rockchip,rk3528-usb2phy"' "${lx_dts_dir}/rk3528.dtsi"; then
+    native_usb=1
+    log "Using native RK3528 USB support; skipping the USB backport series."
+  fi
   local p
   for p in "${assets}/linux/patches/"*.patch; do
+    case "${p##*/}" in
+      121-*.patch|131-02-*.patch)
+        [[ "${native_usb}" == "1" ]] && continue ;;
+    esac
+    # Non-USB fixes (notably SDIO pwrseq) are still required. Never silently
+    # ignore an unexpected patch failure.
     log "git apply $(basename "${p}")"
     git -C "${KERNEL_SRC_DIR}" apply "${p}" || fatal "Kernel patch failed to apply: $(basename "${p}")"
   done
@@ -44,10 +63,16 @@ board_inject_sources() {
       >> "${lx_dts_dir}/Makefile"
   fi
 
-  # --- AIC8800 Wi-Fi/BT vendor driver: fetch + apply mainline port patch -------
-  aic8800_prepare_source
+}
 
-  log "M28K board sources injected."
+board_prepare_modules() { aic8800_prepare_source; }
+
+# Full-image path retains the same ordered operations. Kernel validation invokes
+# only the kernel/module hooks, never the bootloader hook.
+board_inject_sources() {
+  board_inject_uboot_sources
+  board_inject_kernel_sources
+  board_prepare_modules
 }
 
 board_build_modules()     { aic8800_build; }

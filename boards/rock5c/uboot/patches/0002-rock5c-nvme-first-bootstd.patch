@@ -1,0 +1,45 @@
+From: arm-packer <noreply@example.invalid>
+Subject: [PATCH] rock5c: optional NVMe-first extlinux boot with SD rescue
+
+Use upstream Standard Boot's device-tree policy, not a custom boot script or
+persistent environment. Keep the generic SD-first image unchanged unless this
+patch is explicitly selected. The empty legacy boot_targets lets bootdev-order
+take effect. An explicit extlinux bootmeth avoids the global EFI manager
+probing MMC ahead of the requested device order; this profile boots arm-packer
+extlinux systems, not EFI installations.
+
+diff --git a/include/configs/rock-5c-rk3588s.h b/include/configs/rock-5c-rk3588s.h
+--- a/include/configs/rock-5c-rk3588s.h
++++ b/include/configs/rock-5c-rk3588s.h
+@@ -6,6 +6,10 @@
+ #ifndef __ROCK_5C_RK3588S_H
+ #define __ROCK_5C_RK3588S_H
+ 
++/* Use bootstd's bootdev-order rather than the SoC's legacy SD-first list.
++ * No saved environment is required for this immutable firmware policy. */
++#define BOOT_TARGETS ""
++
+ #define ROCKCHIP_DEVICE_SETTINGS \
+ 		"stdout=serial,vidconsole\0" \
+ 		"stderr=serial,vidconsole\0"
+diff --git a/arch/arm/dts/rk3588s-rock-5c-u-boot.dtsi b/arch/arm/dts/rk3588s-rock-5c-u-boot.dtsi
+--- a/arch/arm/dts/rk3588s-rock-5c-u-boot.dtsi
++++ b/arch/arm/dts/rk3588s-rock-5c-u-boot.dtsi
+@@ -7,6 +7,17 @@
+ #include "rk3588s-u-boot.dtsi"
+ 
++/ {
++	bootstd {
++		compatible = "u-boot,boot-std";
++		bootdev-order = "nvme", "mmc1", "mmc0", "usb";
++
++		extlinux {
++			compatible = "u-boot,extlinux";
++		};
++	};
++};
++
+ &sdhci {
+ 	cap-mmc-highspeed;
+ 	mmc-hs200-1_8v;
+ };

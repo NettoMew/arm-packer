@@ -1,23 +1,30 @@
 # Widora MangoPi M28K board support (RK3528)
 
-Assets injected by `build_e20c_firmware.sh` when `BOARD=m28k`. The M28K is not yet
+Assets injected by `scripts/build.sh` when `BOARD=m28k`. The M28K is not yet
 in mainline U-Boot or mainline Linux, so its device trees / defconfig (and the
 RK3528 USB backport patches) are kept here and applied during the build.
+
+The default kernel tag is defined in [`config/versions.conf`](../../config/versions.conf).
+Linux **7.2.7** provides native RK3528 USB PHY and DT nodes replacing the `121-*` / `131-02-*` USB
+backport series, so the hook skips that series when both are present. Older
+trees without native support still use the backports. The `200-*` SDIO power
+sequence fix remains applied; the AIC8800 patch filenames retain their original
+7.1 porting baseline, not the selected kernel version.
 
 ## Build
 
 ```sh
-# Full mainline build (fetches latest U-Boot/Linux, then injects M28K sources):
-BOARD=m28k ./build_e20c_firmware.sh
+# Full build (fetches mainline U-Boot and pinned Linux, then injects M28K sources):
+make m28k
 
-# Reuse already-cloned source trees (recommended for reproducibility; keeps the
-# kernel HEAD the USB patches were verified against):
-SKIP_FETCH=1 BOARD=m28k ./build_e20c_firmware.sh
+# Reuse already-cloned source trees for iteration, NOT for a kernel upgrade:
+make m28k SKIP_FETCH=1
 ```
 
-Output: `out/widora-mangopi-m28k-alpine-mainline.img`. Flash with
-`dd if=out/widora-mangopi-m28k-alpine-mainline.img of=/dev/sdX bs=4M conv=fsync`.
-Serial console: 1500000 8N1 on ttyS0. First boot has an empty root password.
+Default output: `out/widora-mangopi-m28k-screen-alpine-<kernelversion>.img.xz`.
+See [build instructions](../../docs/build.md) for upgrading an existing workspace
+and flashing the compressed image. Serial console: 1500000 8N1 on ttyS0;
+default login: `root` / `120102`.
 
 ## Layout
 

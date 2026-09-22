@@ -1,0 +1,3 @@
+# Unified patches contain required context prefixes (including blank lines).
+# Preserve LF and do not flag those prefixes as source whitespace errors.
+*.patch text eol=lf -whitespace

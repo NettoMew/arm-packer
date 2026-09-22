@@ -1,0 +1,25 @@
+# Built by scripts/build-swupdate-apks.sh in an isolated Alpine environment.
+pkgname=libubootenv
+pkgver=$LIBUBOOTENV_VERSION
+pkgrel=0
+pkgdesc="Upstream U-Boot environment library (SWUpdate build dependency)"
+url="https://github.com/sbabic/libubootenv"
+arch="aarch64"
+license="LGPL-2.1-or-later"
+makedepends="cmake ninja linux-headers bsd-compat-headers zlib-dev yaml-dev"
+subpackages="$pkgname-dev"
+source="$pkgname-$pkgver.tar.gz::https://github.com/sbabic/libubootenv/archive/$LIBUBOOTENV_COMMIT.tar.gz"
+builddir="$srcdir/libubootenv-$LIBUBOOTENV_COMMIT"
+sha512sums="$LIBUBOOTENV_SHA512  $pkgname-$pkgver.tar.gz"
+options="!check" # upstream provides no test target
+
+build() {
+    cmake -S "$builddir" -B "$builddir/build" \
+        -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=lib \
+        -DCMAKE_BUILD_TYPE=MinSizeRel -DBUILD_DOC=OFF
+    cmake --build "$builddir/build" -j "${JOBS:-2}"
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install "$builddir/build"
+}

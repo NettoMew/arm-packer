@@ -5,8 +5,8 @@
 # its board_* hooks to these helpers. Bus dispatch (sdio vs usb) is genuine
 # hardware difference, not board dispatch.
 
-AIC8800_REPO="${AIC8800_REPO:-https://github.com/radxa-pkg/aic8800.git}"
-AIC8800_COMMIT="${AIC8800_COMMIT:-89f865b80f5f2ba6c0711c560e1d0191e87a1bf0}"
+AIC8800_REPO="${AIC8800_REPO:-${DEFAULT_AIC8800_REPO}}"
+AIC8800_COMMIT="${AIC8800_COMMIT:-${DEFAULT_AIC8800_COMMIT}}"
 AIC8800_DIR="${AIC8800_DIR:-${SRC_DIR}/aic8800}"
 # WIFI_USERSPACE_PACKAGES default + the install/enable/iface primitives are
 # distro-provided (lib/distro/<distro>.sh), so this driver layer is distro-agnostic.

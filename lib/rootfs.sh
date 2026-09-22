@@ -58,6 +58,8 @@ EOF
   distro_install_resize_service
   distro_finalize                 # distro wrap-up (e.g. Arch first-boot oneshot)
 
+  install_swupdate               # optional signed offline updater; no service
+
   run_sudo sync
 }
 

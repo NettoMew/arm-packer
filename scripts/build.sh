@@ -13,19 +13,25 @@
 #   BOARD=m28k M28K_OLED=0 scripts/build.sh      # variant via env knob
 #   BOARD=rock5c scripts/build.sh --dry-run      # resolve + print config, no build
 #   BOARD=e20c scripts/build.sh --stop-after-kconfig   # build up to kernel .config
+#   BOARD=e20c scripts/build.sh --kernel-check        # isolated patches/config/DTB
+#   BOARD=e20c scripts/build.sh --kernel-build        # isolated kernel + modules
 
 set -Eeuo pipefail
 IFS=$'\n\t'
 
 # ------------------------------ Flags ----------------------------------------
 DRY_RUN=0
+KERNEL_ACTION=""
 export STOP_AFTER_KCONFIG="${STOP_AFTER_KCONFIG:-0}"
 for arg in "$@"; do
   case "${arg}" in
     --dry-run) DRY_RUN=1 ;;
     --stop-after-kconfig) STOP_AFTER_KCONFIG=1 ;;
+    --kernel-check|--kernel-build)
+      [[ -z "${KERNEL_ACTION}" ]] || { printf 'Choose one kernel validation action.\n' >&2; exit 2; }
+      KERNEL_ACTION="${arg#--kernel-}" ;;
     -h|--help)
-      sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) printf 'Unknown argument: %s\n' "${arg}" >&2; exit 2 ;;
   esac
@@ -121,7 +127,7 @@ IMAGE_PATH="${OUTPUT_DIR}/${IMAGE_NAME:-${IMAGE_NAME_PREFIX}-pending.img}"
 vendor_select_blobs
 
 # Engine modules.
-for m in deps workspace sources uboot kernel image rootfs pipeline; do
+for m in deps workspace sources uboot kernel image rootfs pipeline kernel-update swupdate; do
   # shellcheck source=/dev/null
   source "${LIB_DIR}/${m}.sh"
 done
@@ -136,8 +142,16 @@ if [[ "${DRY_RUN}" == "1" ]]; then
   log "vendor/soc: ${BOARD_VENDOR}/${BOARD_SOC}"
   distro_env_summary
   vendor_env_summary
+  log "u-boot source: ${UBOOT_REPO} @ ${UBOOT_REF}"
   log "u-boot defconfig: ${UBOOT_DEFCONFIG}"
+  log "kernel source: ${KERNEL_REPO} @ ${KERNEL_REF}"
+  if [[ -n "${KERNEL_ACTION}" ]]; then
+    kernel_require_release_tag "${KERNEL_REF}"
+    log "kernel validation: ${KERNEL_ACTION} (fresh isolated workspace; no bootloader/rootfs/image operations)"
+    log "validation root: ${KERNEL_VALIDATION_ROOT:-${PROJECT_DIR}/work/kernel-validation}"
+  fi
   log "kernel dtb: ${KERNEL_DTB}"
+  log "offline SWUpdate: ${ENABLE_SWUPDATE} (packages + public key required when enabled)"
   log "image: ${OUTPUT_DIR}/${IMAGE_NAME:-${IMAGE_NAME_PREFIX}-<kernelversion>.img} (size ${IMAGE_SIZE})"
   log "console: ${SERIAL_CONSOLE},${SERIAL_BAUD}n8"
   log "partition table: $(vendor_partition_table)"
@@ -149,7 +163,7 @@ if [[ "${DRY_RUN}" == "1" ]]; then
   for f in "${KERNEL_FRAGMENT_LIST[@]}"; do log "  - ${f#"${PROJECT_DIR}/"}"; done
   log "board hooks defined:"
   local_any=0
-  for h in inject_sources build_modules install_modules install_userspace configure_runtime install_extras; do
+  for h in inject_sources inject_uboot_sources inject_kernel_sources prepare_modules build_modules install_modules install_userspace configure_runtime install_extras; do
     if declare -F "board_${h}" >/dev/null; then log "  ✓ board_${h}"; local_any=1; fi
   done
   [[ "${local_any}" == "0" ]] && log "  (none — pristine board)"
@@ -157,4 +171,8 @@ if [[ "${DRY_RUN}" == "1" ]]; then
   exit 0
 fi
 
-run_pipeline "$@"
+if [[ -n "${KERNEL_ACTION}" ]]; then
+  run_kernel_validation "${KERNEL_ACTION}"
+else
+  run_pipeline "$@"
+fi

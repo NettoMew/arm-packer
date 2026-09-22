@@ -19,17 +19,23 @@
 - **board_\* 钩子**（可选）：`board_inject_sources / _build_modules / _install_modules /
   _install_userspace / _configure_runtime / _install_extras`；pipeline 用 `board_hook <name>` 调，
   未定义即 no-op。
+  源码注入拆为 `board_inject_uboot_sources / board_inject_kernel_sources / board_prepare_modules`：
+  `board_inject_sources` 保留为完整镜像构建的组合入口；独立内核验证只调用后两者，不碰 U-Boot。
+  新增有源码补丁的板子必须按此拆分，不能仅实现混合的旧入口。
 
 ## 目录结构
 
 ```
 Makefile                      # 入口：make <板子> / make <板>-dry（调用 scripts/build.sh）
-scripts/build.sh              # 唯一入口脚本：载 config → 载 vendor+hooks → 跑 pipeline
+config/versions.conf          # 共享源码默认版本；环境/板级覆盖优先
+scripts/build.sh              # 构建入口：载 config → 载 vendor+hooks → 跑 pipeline
+scripts/kernel-update.sh      # 显式候选 check/build + 真机确认后的 promote
 lib/                          # 引擎模块（无 board/vendor/distro 分支）
   log/env/deps/workspace/     #   日志、旋钮+派生路径、依赖、工作区
   sources/uboot/kernel/       #   取源(+定镜像名)、U-Boot、内核(片段合并)
   image/rootfs/pipeline.sh    #   镜像分区/写引导、共享 rootfs 落地、run_pipeline + 钩子分派
   aic8800.sh                  #   AIC8800 Wi-Fi/BT 驱动能力（m28k SDIO / rock5c USB 共用）
+  kernel-update.sh            #   独立工作区、检查/编译报告、默认版本更新检查
   vendor/rockchip.sh          #   rkbin blob / u-boot-rockchip.bin@s64 / GPT / Panthor 固件
   vendor/allwinner.sh         #   现编 ATF BL31 / u-boot-sunxi-with-spl.bin@8KiB / MBR
   distro/alpine.sh            #   apk + OpenRC + ifupdown
@@ -45,7 +51,8 @@ boards/rock5c/                #   hooks.sh（RK3582 开核 + AIC8800 USB）+ ubo
 kconfig/                      # 可组合内核片段 + distro-arm64.config 基线（见 kconfig/README.md）
 resources/rootfs/             # 固定 rootfs 文件（resize 脚本、wpa 模板、interfaces 基底）
 work/                         # 源码树工作区（U-Boot/Linux + rkbin/aic8800 或 arm-trusted-firmware）
-out/                          # 成品镜像（*.img.zst）
+work/kernel-validation/       # 候选内核的独立工作区/产物/报告（不动日常构建树）
+out/                          # 成品镜像（*.img.xz）
 ```
 
 ## 内核 = defconfig + 片段 merge_config

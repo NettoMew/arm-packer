@@ -33,6 +33,7 @@ print_environment_summary() {
 
 run_pipeline() {
   print_environment_summary
+  swupdate_preflight
   install_dependencies
   prepare_workspace
   distro_prepare                 # host-side payload + tooling (apk.static / rootfs tarball)
@@ -61,9 +62,9 @@ run_pipeline() {
   compress_image
 
   section "Done"
-  if [[ "${COMPRESS_IMAGE}" == "1" && -f "${IMAGE_PATH}.zst" ]]; then
-    log "Firmware image: ${IMAGE_PATH}.zst"
-    log "To write to removable media (verify the target device!): zstd -dc '${IMAGE_PATH}.zst' | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress"
+  if [[ "${COMPRESS_IMAGE}" == "1" && -f "${IMAGE_PATH}.xz" ]]; then
+    log "Firmware image: ${IMAGE_PATH}.xz (select directly in balenaEtcher)"
+    log "To write to removable media (verify the target device!): xz -dc '${IMAGE_PATH}.xz' | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress"
   else
     log "Firmware image: ${IMAGE_PATH}"
     log "To write to removable media (verify the target device!): sudo dd if='${IMAGE_PATH}' of=/dev/sdX bs=4M conv=fsync status=progress"

@@ -9,13 +9,17 @@
 #
 # shellcheck disable=SC2034  # vars here are consumed by other sourced lib modules.
 
+# Central defaults do not overwrite the effective env/board settings.
+# shellcheck source=../config/versions.conf
+source "${PROJECT_DIR}/config/versions.conf"
+
 # Per-board declaration defaults (a board.conf may override any of these).
 BOARD_SERIAL_BAUD="${BOARD_SERIAL_BAUD:-1500000}"
 BOARD_KERNEL_CMDLINE_EXTRA="${BOARD_KERNEL_CMDLINE_EXTRA:-}"
 BOARD_SECOND_NIC="${BOARD_SECOND_NIC:-0}"
 # Number of wired NICs to bring up (all DHCP, no role split). Canonical knob;
 # BOARD_SECOND_NIC=1 is the legacy spelling for "2". A board may set BOARD_NICS
-# directly (e.g. H88K = 3). Arch's shipped systemd-networkd catch-all covers any
+# directly. Arch's shipped systemd-networkd catch-all covers any
 # count; only Alpine's ifupdown enumerates per-NIC (lib/distro/alpine.sh).
 if [[ -z "${BOARD_NICS:-}" ]]; then
   [[ "${BOARD_SECOND_NIC}" == "1" ]] && BOARD_NICS=2 || BOARD_NICS=1
@@ -23,31 +27,37 @@ fi
 BOARD_KERNEL_FRAGMENTS="${BOARD_KERNEL_FRAGMENTS:-}"
 
 # Image name = <board prefix>-<distro>-<linux kernel version>.img, e.g.
-# radxa-e20c-alpine-6.12.1.img / radxa-rock5c-archlinux-7.1.0-rc6.img. The kernel
+# radxa-e20c-alpine-<version>.img / radxa-rock5c-archlinux-<version>.img. The kernel
 # version is resolved from the fetched source, so the name is FINALIZED after fetch
 # (finalize_image_name in lib/sources.sh). A user-pinned IMAGE_NAME overrides.
 IMAGE_NAME_PREFIX="${BOARD_IMAGE_PREFIX}-${DISTRO}"
 IMAGE_NAME="${IMAGE_NAME:-}"   # empty = auto-compose with the kernel version after fetch
 # IMAGE_SIZE is finalized in scripts/build.sh AFTER the distro plugin is sourced,
 # from DISTRO_IMAGE_SIZE (Alpine's tiny rootfs fits 1G; the ALARM rootfs needs ~4G).
-# The build image is sparse + zstd-compressed + first-boot-resized, so a larger
-# image costs almost nothing in the .img.zst (zstd -19).
+# The build image is sparse + xz-compressed + first-boot-resized, so a larger
+# image costs almost nothing in the .img.xz (xz -T0 -6).
 JOBS="${JOBS:-$(nproc)}"
 export MAKEFLAGS="${MAKEFLAGS:--j${JOBS}}"
 
 # Mainline U-Boot. Use "master" for the latest mainline development tree, or a
 # release tag such as v2026.01 for reproducibility.
-UBOOT_REPO="${UBOOT_REPO:-https://source.denx.de/u-boot/u-boot.git}"
-UBOOT_REF="${UBOOT_REF:-master}"
+UBOOT_REPO="${UBOOT_REPO:-${DEFAULT_UBOOT_REPO}}"
+UBOOT_REF="${UBOOT_REF:-${DEFAULT_UBOOT_REF}}"
 UBOOT_DEFCONFIG="${UBOOT_DEFCONFIG:-${BOARD_UBOOT_DEFCONFIG}}"
 
-# Mainline Linux. By default this shallow-clones the latest upstream master.
+# Upstream stable Linux, pinned to a release tag for reproducible builds.
+# Stable point releases live in stable/linux.git, not torvalds/linux.git.
 # Override KERNEL_REPO/KERNEL_REF if you need a different mirror or branch/tag.
-KERNEL_REPO="${KERNEL_REPO:-https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git}"
-KERNEL_REF="${KERNEL_REF:-master}"
+KERNEL_REPO="${KERNEL_REPO:-${DEFAULT_KERNEL_REPO}}"
+KERNEL_REF="${KERNEL_REF:-${DEFAULT_KERNEL_REF}}"
 KERNEL_DEFCONFIG="${KERNEL_DEFCONFIG:-defconfig}"
 KERNEL_DTB="${KERNEL_DTB:-${BOARD_KERNEL_DTB}}"
 KERNEL_DTS="${KERNEL_DTB%.dtb}.dts"
+
+# Optional SWUpdate test-image foundation; require explicit packages + trust key.
+ENABLE_SWUPDATE="${ENABLE_SWUPDATE:-0}"
+SWUPDATE_PACKAGE_DIR="${SWUPDATE_PACKAGE_DIR:-}"
+SWUPDATE_PUBLIC_KEY="${SWUPDATE_PUBLIC_KEY:-}"
 
 # Rootfs userspace (package manager + init system + network) is provided by the
 # distro plugin lib/distro/${DISTRO}.sh — it owns its repo URLs, base package set
@@ -112,7 +122,7 @@ DISTRO_CONFIG_FRAGMENT="${DISTRO_CONFIG_FRAGMENT:-${PROJECT_DIR}/kconfig/distro-
 # Keep the full linux-firmware pool instead of slimming it. Cross-distro intent: on
 # Arch it forces ARCH_STRIP_ALL_FW=0 + keeps the linux-firmware packages (see
 # lib/distro/archlinux.sh); on Alpine it installs the linux-firmware meta. Default
-# off (each distro keeps its lean default); a board may set it (e.g. H88K).
+# off (each distro keeps its lean default); a board may override it.
 FULL_FIRMWARE="${FULL_FIRMWARE:-0}"
 
 # Directory holding the composable kconfig fragments merged on top of defconfig.
@@ -133,7 +143,7 @@ PACMAN_ASSUME_YES="${PACMAN_ASSUME_YES:---needed --noconfirm}"
 CLEAN_WORKSPACE="${CLEAN_WORKSPACE:-0}"
 KEEP_MOUNTS_ON_ERROR="${KEEP_MOUNTS_ON_ERROR:-0}"
 # Set SKIP_FETCH=1 to reuse already-cloned U-Boot/Linux/firmware trees instead of
-# pulling the latest mainline. Useful for reproducible iteration and to keep a
+# fetching the configured refs. Useful for reproducible iteration and to keep a
 # tree state that the m28k backport patches are known to apply against.
 SKIP_FETCH="${SKIP_FETCH:-0}"
 # Kernel build is INCREMENTAL by default: the build dir is reused and `make` only
@@ -147,7 +157,7 @@ CLEAN_KERNEL="${CLEAN_KERNEL:-0}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 
 # Set COMPRESS_IMAGE=0 to keep the raw .img only. Default (1) runs `xz` on the
-# finished image to produce <image>.img.zst and removes the raw .img.
+# finished image to produce <image>.img.xz and removes the raw .img.
 COMPRESS_IMAGE="${COMPRESS_IMAGE:-1}"
 
 # ------------------------------ Derived paths --------------------------------

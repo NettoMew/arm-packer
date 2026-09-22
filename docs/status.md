@@ -1,13 +1,67 @@
 # 进度与已知限制
 
+## 本轮收尾（2026-09-23）
+
+- 最终采用保留 SD 卡的引导方式，暂停 SPI 模块采购及无 SD 启动研究；保持交付固件和 SD 优先默认顺序，不刷实验性 NVMe-first 固件。
+- SD 原系统与已安装的 NVMe 系统均保留。最后一次真机检查仍为临时选盘后的 NVMe 根系统；此次仓库收尾不重启、不刷盘，不将文档整理表述为已切回 SD 运行。
+- 可选 `ROCK5C_NVME_BOOT=1` 构建配置及研究记录保留，但默认关闭，NVMe 热重启超时尚未解决，不能作为稳定自动启动方案交付。
+- SWUpdate 仅为签名安装器基础设施，实际在线内核切换和自动回滚仍未实现。
+- 收尾离线检查通过：Shell 语法、12 个板卡/发行版 dry-run、内核更新工作流保护、SWUpdate 配置预检、真实 XZ 往返/失败保护、ROCK5C 默认 SD 与可选 NVMe BootSTD 补丁测试。内核工作流测试使用模拟编译，不等于再次交叉编译；本轮没有重跑真机或 SWUpdate 运行时测试。
+
+## 内核更新工作流
+
+- 默认源码版本集中到 `config/versions.conf`，环境变量和板级覆盖保留。
+- 新增独立 `kernel-check` / `kernel-build` 及带报告检查、人工真机确认的 `kernel-promote`。
+- 流程离线回归使用模拟编译产物验证保护逻辑；不等同于真实交叉编译或真机验证。使用方式见[内核更新流程](kernel-updates.md)。
+
+## SWUpdate 首个测试目标（2026-09-22）
+
+- ROCK5C / Alpine 为首个镜像目标；`ENABLE_SWUPDATE=1` 显式启用，打包方式见 [SWUpdate 集成](swupdate.md)。
+- ARM64 Linux 的 Alpine 3.24.2 / musl 环境已真实编译 SWUpdate 2026.05.1 和 libubootenv 0.3.7；不是模拟编译。
+- 真实安装器的签名校验、错误密钥/布局版本/篡改/无签名拒绝、preinstall 失败保护和正常 archive/hook 流程通过。
+- 已在独立 Alpine rootfs 验证签名 APK 仓库安装、动态库解析、公共验证密钥及设备身份写入，保留原测试启动文件。
+- **完整 Linux 7.2.7 / ROCK5C / Alpine 3.24.2 镜像已真实构建并通过离线审计**：`ssh andy` 的 ARM64 Linux 容器构建，保留 BTF、Docker、发行版级内核配置和 4113 个模块文件；AIC8800 USB 两个模块与内核版本一致。
+- 检查了 ext4、引导区、Image/DTB、PARTUUID/extlinux/fstab、AIC/Mali 固件、OpenRC 服务、SWUpdate 运行库/签名配置/公钥。镜像不含更新私钥，不启用更新守护进程。
+- **2026-09-23 已完成首轮 ROCK5C 真机启动检查**，结果和未解决警告见下节；没有实现在线内核切换/自动回滚。
+- 修复干净构建环境缺少 libelf 开发头文件的预检；`rkbin` 固定到包含既定 BL31/DDR 文件的提交，避免 `master` 删除旧文件后构建失败。10 GiB 虚拟机的 BTF 阶段以 `JOBS=1` 完成，未关闭 BTF。
+
+## ROCK5C / 7.2.7 首轮真机检查（2026-09-23）
+
+- 通过 COM3（1500000、8N1、无流控）及直连以太网 SSH 实测启动；运行 Alpine 3.24.2 / Linux 7.2.7，7 个 CPU 在线。Image、DTB 和更新公钥哈希与交付产物一致，运行时 BTF 存在。
+- SD 根分区首启扩容至约 14.3 GiB；`sfdisk --verify /dev/mmcblk1` 无错误。早期启动日志的 GPT 备份表位置警告发生在扩容前，当前表已正常。
+- 以太网协商 1000 Mbps / 全双工，主机到板卡 ping 3/3 及公钥 SSH 登录通过。本次 IPv4LL 地址为 `169.254.192.252`，不是固定配置；未修改主机网络，也未配置 Internet 共享，chrony 尚未同步时间。
+- AIC8800 USB 两个模块加载，`wlan0` 被动扫描返回 8 条 BSS 记录；未测试 Wi-Fi 关联/数据传输。Panthor 初始化并出现 `renderD128`，NVMe E2M2 64GB 及其分区被识别；未做 GPU 渲染或 NVMe 读写测试。
+- SWUpdate 程序可运行、设备身份为 `rock5c rock5c-alpine-v1`；没有执行更新、重启、刷写或磁盘写入测试。HDMI、蓝牙、持续负载和重启回归仍待验证。
+- **待修复 / 排查**：
+  - GIC PPI affinity 仍含 `cpu@400`（phandle `0x06`），但运行时该 CPU 的 `status=fail`。与本次构建源码对照，`of_cpu_node_to_id()` 返回负值触发 `irq-gic-v3.c:2135` 的 WARN，随后跳过该 CPU；不能将这次启动记为无内核警告。
+  - `mmc0` 报非可移除卡初始化失败；用户已确认未安装 eMMC 模块，因此本次不作为已安装存储设备故障。当前从 SD（`mmc1`）正常启动，eMMC 功能仍未测试。
+  - `wireless-regdb` 未安装，日志提示 `regulatory.db` 缺失；驱动另报 efuse 无 MAC。扫描成功不代表区域规则、唯一 MAC 或无线连接验证完成。
+  - 还有 NVMe SUBNQN、媒体设备电源域/延迟探测提示；NVMe 枚举及 Hantro 后续注册成功不等于这些子系统的功能测试通过。
+- 本次本地原始证据：`work/rock5c-hardware-20260923/`（串口、完整 dmesg、SSH 摘要和只读分区校验；不纳入版本控制）。
+- 后续经用户授权清空 NVMe，已部署并校验同一交付镜像，分配独立 UUID，根文件系统扩容至 56.7 GiB。完全断电后，串口临时选择 NVMe extlinux bootflow，实测 Image/DTB 从 NVMe 加载，运行根设备为 `nvme0n1p1`，Linux 7.2.7 / Alpine 3.24.2 与 SSH 均正常。
+- **NVMe 启动尚不能作为稳定交付**：此前软重启后的 U-Boot 探测曾超时，冷启动通过不代表根因已解决；默认仍 SD 优先，SD 引导/救援系统未改，NVMe 优先候选固件只编译、未刷入。详见 [NVMe 启动研究](rock5c-nvme-boot.md)。
+- 此前为彻底无 SD 的目标，已对照 A5E 的 SPI/NVMe 方案、Rockchip 手册、Radxa SPI 配置及主线驱动。独立 SPI 固件 + NVMe 完整系统需要兼容 SPI 模块（或 eMMC 前级），但本板共享插座为空；A5E 同型号 SSD 的供电/复位时序修复仅作诊断参考，未直接移植、未刷写。该方向现已暂缓。
+- 无 SD 研究时用户曾要求不加硬件、不接受电脑辅助，只接电源独立冷启动。进一步核查固定版 U-Boot 的 ROM 来源映射、SPL/RAM/USB 引导与 rkdeveloptool 下载实现后，确认现有空插座硬件无法同时满足这些约束，未实现该功能。USB 辅助方案已停止，未为此构建/刷写固件或操作 OTP；最终收尾改为保留 SD，详见 [研究记录](rock5c-nvme-boot.md)。
+
+## Linux 7.2.7 升级
+
+- 本次升级将内核设为官方 stable 仓库的 `v7.2.7`（后续默认值以 `config/versions.conf` 为准）；升级旧工作区时须重新取源并编译，见[构建说明](build.md#内核版本)。
+- M28K 检测到原生 RK3528 USB PHY 与设备树支持时跳过旧 USB 回移补丁，仍应用 SDIO 供电修复。
+- 当前支持 4 块板 × 3 个发行版，使用 `bash scripts/test-kernel-config.sh` 做 dry-run 回归；已在 7.2.7 / 7.1-rc6 的相关上游源码文件上验证 M28K 补丁注入与重复执行。
+- 下述历史真机实测记录来自升级前；7.2.7 已完成 ROCK5C 镜像、AIC8800 USB 编译和上节列出的首轮启动检查，其他板子的完整构建、AIC8800 SDIO 移植与 7.2.7 启动仍需验证。
+
 ## 已完成
+
+- 2026-09-23：默认整盘镜像打包改为 `.img.xz`，可直接交给 balenaEtcher。
+  ROCK5C 7.2.7 旧测试镜像已转包；解压后的 SHA-256 不变，未重编或修改系统内容。
+  新增真实 XZ 往返、关闭压缩、缺少工具、压缩/校验失败保留旧包与原图的回归测试。
 
 **通用**
 - 主线 U-Boot + 主线 Linux + rootfs，整盘镜像，首启自动扩容
 - GPU：内核 DRM（RK3528=lima / RK3588=Panthor）+ 用户态 Mesa
 - 时间：chrony（aliyun NTP）+ tzdata（Asia/Shanghai），无 RTC 也能开机校时
 - SSH（公钥 + 密码）、root 密码、串口控制台、mdev 热插拔
-- 输出 `zstd -19` 压缩为 `*.img.zst`（删除原始 `.img`）
+- 输出 `xz -T0 -6` 压缩为 `*.img.xz`（删除原始 `.img`）
 - **三个发行版**：`alpine`（apk+OpenRC）/ `archlinux`（pacman+systemd）/ `eweos`（pacman+dinit，
   musl/busybox）。内核/引导/分区/板级钩子完全复用，每块板 ×3 发行版皆可构建
 
@@ -22,7 +76,7 @@
     ssd130x framebuffer 后 exec，symlink 进 `/etc/dinit.d/boot.d/` 自启）。LED 由通用
     `distro_adapt_local_d` 自动转成对应 init 的 oneshot。三版功能对齐。
 
-**ROCK 5C（RK3588S2 / RK3582）—— 已真机验证**
+**ROCK 5C（RK3588S2 / RK3582）—— 升级前内核已真机验证**
 - 纯主线 U-Boot + Linux，真机启动正常：千兆网口（gmac1 RGMII + RTL8211F）、eMMC、SD、
   USB3(DWC3)、**PCIe NVMe（FPC/M.2）**、**Mali-G610 → Panthor**（模块 + 固件，`/dev/dri/renderD128`）
 - **RK3582 开核已生效**：实测 **7 核**（4×A55 + 3×A76 @2.4GHz）+ GPU；只砍掉真坏的那颗大核

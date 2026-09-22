@@ -26,7 +26,11 @@ ALPINE_UBOOT_URL="${ALPINE_UBOOT_URL:-latest}"
 ALPINE_REPOSITORY_MAIN="${ALPINE_REPOSITORY_MAIN:-https://dl-cdn.alpinelinux.org/alpine/latest-stable/main}"
 ALPINE_REPOSITORY_COMMUNITY="${ALPINE_REPOSITORY_COMMUNITY:-https://dl-cdn.alpinelinux.org/alpine/latest-stable/community}"
 ALPINE_ROOTFS_PACKAGES="${ALPINE_ROOTFS_PACKAGES:-alpine-base ifupdown-ng dhcpcd dhcpcd-openrc e2fsprogs openssh openssh-server-common-openrc chrony chrony-openrc}"
-APK_TOOLS_STATIC_REPO="${APK_TOOLS_STATIC_REPO:-https://dl-cdn.alpinelinux.org/alpine/latest-stable/main/x86_64}"
+# apk.static executes on the builder, not in the target rootfs. Apple Silicon
+# Linux VMs therefore need aarch64, not the previously hard-coded x86_64 binary.
+APK_TOOLS_STATIC_ARCH="${APK_TOOLS_STATIC_ARCH:-$(uname -m)}"
+[[ "${APK_TOOLS_STATIC_ARCH}" != arm64 ]] || APK_TOOLS_STATIC_ARCH=aarch64
+APK_TOOLS_STATIC_REPO="${APK_TOOLS_STATIC_REPO:-https://dl-cdn.alpinelinux.org/alpine/latest-stable/main/${APK_TOOLS_STATIC_ARCH}}"
 
 # Userspace package names (Alpine flavour). Engine-generic vars resolved here.
 GPU_USERSPACE_PACKAGES="${GPU_USERSPACE_PACKAGES:-mesa-dri-gallium mesa-egl mesa-gles mesa-gbm}"
@@ -151,6 +155,36 @@ ${ALPINE_REPOSITORY_COMMUNITY}
 EOF
 }
 
+# Locally built, repository-signed packages from the isolated Alpine builder.
+# This hook is deliberately not implemented by other distro plugins yet.
+distro_install_swupdate() {
+  local key
+  local -a packages=() keys=()
+  shopt -s nullglob
+  packages=("${SWUPDATE_PACKAGE_DIR}/aarch64/"*.apk)
+  keys=("${SWUPDATE_PACKAGE_DIR}/"*.pub)
+  shopt -u nullglob
+  (( ${#packages[@]} == 2 && ${#keys[@]} == 1 )) || fatal "Expected SWUpdate + libubootenv APKs and one repository public key."
+  [[ -f "${SWUPDATE_PACKAGE_DIR}/SHA256SUMS" ]] || fatal "SWUpdate package checksums missing."
+  (cd "${SWUPDATE_PACKAGE_DIR}"; sha256sum -c SHA256SUMS) || fatal "SWUpdate package checksums failed."
+  for key in "${keys[@]}"; do
+    run_sudo install -m 644 "${key}" "${MOUNTPOINT_ROOT}/etc/apk/keys/$(basename "${key}")"
+  done
+  [[ -f "${SWUPDATE_PACKAGE_DIR}/aarch64/APKINDEX.tar.gz" ]] || fatal "Signed updater APK repository index missing."
+  # Keep a signed local repository in the image. This works for diskless/bootstrap
+  # roots too, without --allow-untrusted or --force-non-repository exceptions.
+  local repo=/usr/share/arm-packer/apk
+  run_sudo mkdir -p "${MOUNTPOINT_ROOT}${repo}/aarch64"
+  run_sudo cp -a "${SWUPDATE_PACKAGE_DIR}/aarch64/." "${MOUNTPOINT_ROOT}${repo}/aarch64/"
+  run_sudo "${APK_STATIC}" --root "${MOUNTPOINT_ROOT}" --arch aarch64 \
+    --repository "${ALPINE_REPOSITORY_MAIN}" --repository "${ALPINE_REPOSITORY_COMMUNITY}" \
+    --repository "${SWUPDATE_PACKAGE_DIR}" \
+    --update-cache add "swupdate=${SWUPDATE_VERSION}-r0" "libubootenv=${LIBUBOOTENV_VERSION}-r0"
+  if ! grep -Fxq "${repo}" "${MOUNTPOINT_ROOT}/etc/apk/repositories"; then
+    printf '%s\n' "${repo}" | run_sudo tee -a "${MOUNTPOINT_ROOT}/etc/apk/repositories" >/dev/null
+  fi
+}
+
 distro_configure_time() {
   section "Configuring time sync (chrony) and timezone"
   # No RTC on these boards → chrony with unlimited makestep. chronyd is enabled in
@@ -188,7 +222,7 @@ distro_set_timezone() {
 distro_configure_network() {
   # Base lo + eth0 (ifupdown) from the fixed resource, then one DHCP stanza per
   # additional wired NIC (eth1..eth{N-1}) for BOARD_NICS>1 — all DHCP, no role
-  # split. Covers dual-gig (BOARD_NICS=2) and H88K's three NICs alike.
+  # split. Covers both single- and multi-NIC boards.
   run_sudo mkdir -p "${MOUNTPOINT_ROOT}/etc/network"
   run_sudo cp "${RESOURCES_DIR}/rootfs/etc/network/interfaces" "${MOUNTPOINT_ROOT}/etc/network/interfaces"
   local i

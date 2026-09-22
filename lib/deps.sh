@@ -10,8 +10,14 @@ install_dependencies() {
     tar xz aria2c blkid rsync cpio perl awk sed grep findmnt mount umount dd kpartx mkfs.vfat
     qemu-aarch64-static
   )
+  [[ "${MODERN_KERNEL:-1}" != 1 ]] || commands+=(pahole)
   for cmd in "${commands[@]}"; do
     have "${cmd}" || missing+=("${cmd}")
+  done
+  # resolve_btfids/libbpf need development headers, not merely the runtime libs.
+  local package
+  for package in libelf zlib; do
+    { have pkg-config && pkg-config --exists "${package}"; } || missing+=("pkg-config:${package}")
   done
 
   if (( ${#missing[@]} == 0 )); then
@@ -30,7 +36,7 @@ install_dependencies() {
       build-essential pkg-config gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
       git bc bison flex swig device-tree-compiler python-is-python3 python3 \
       python3-setuptools python3-dev python3-pyelftools python3-yaml libssl-dev uuid-dev \
-      libgnutls28-dev libncurses-dev kmod dwarves qemu-user-static binfmt-support \
+      libgnutls28-dev libncurses-dev libelf-dev zlib1g-dev kmod dwarves qemu-user-static binfmt-support \
       kpartx dosfstools e2fsprogs parted util-linux udev aria2 xz-utils tar rsync cpio perl
   elif have pacman; then
     # shellcheck disable=SC2086 # PACMAN_ASSUME_YES intentionally contains multiple flags.
@@ -38,18 +44,18 @@ install_dependencies() {
       base-devel git pkgconf bc bison flex swig dtc python python-setuptools \
       python-pyelftools python-yaml openssl gnutls aarch64-linux-gnu-gcc \
       aarch64-linux-gnu-binutils parted util-linux systemd kmod multipath-tools dosfstools \
-      e2fsprogs aria2 tar xz rsync cpio perl ncurses pahole qemu-user-static qemu-user-static-binfmt
+      e2fsprogs aria2 tar xz rsync cpio perl ncurses libelf zlib pahole qemu-user-static qemu-user-static-binfmt
   elif have dnf; then
     run_sudo dnf install -y \
       @development-tools pkgconf-pkg-config gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
       git bc bison flex swig dtc python3 python3-devel python3-setuptools python3-pyelftools \
-      python3-pyyaml openssl-devel gnutls-devel libuuid-devel ncurses-devel kmod dwarves \
+      python3-pyyaml openssl-devel gnutls-devel libuuid-devel ncurses-devel elfutils-libelf-devel zlib-devel kmod dwarves \
       qemu-user-static binfmt-support kpartx dosfstools e2fsprogs parted util-linux aria2 xz tar rsync cpio perl
   elif have zypper; then
     run_sudo zypper --non-interactive install \
       -t pattern devel_basis git pkg-config bc bison flex swig dtc python3 python3-devel \
       cross-aarch64-gcc cross-aarch64-binutils libopenssl-devel libgnutls-devel libuuid-devel \
-      ncurses-devel kmod dwarves qemu-linux-user kpartx dosfstools e2fsprogs parted util-linux aria2 \
+      ncurses-devel libelf-devel zlib-devel kmod dwarves qemu-linux-user kpartx dosfstools e2fsprogs parted util-linux aria2 \
       xz tar rsync cpio perl
   else
     fatal "Unsupported host package manager. Install missing commands manually: ${missing[*]}"
@@ -58,6 +64,9 @@ install_dependencies() {
   missing=()
   for cmd in "${commands[@]}"; do
     have "${cmd}" || missing+=("${cmd}")
+  done
+  for package in libelf zlib; do
+    { have pkg-config && pkg-config --exists "${package}"; } || missing+=("pkg-config:${package}")
   done
   (( ${#missing[@]} == 0 )) || fatal "Still missing after install: ${missing[*]}"
   log "Dependency check passed after installation."
