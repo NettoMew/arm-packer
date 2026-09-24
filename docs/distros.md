@@ -10,7 +10,7 @@
 | 包管理 / init | apk + OpenRC | pacman + systemd | apt + systemd | **pacman + dinit** |
 | 网络 | ifupdown `/etc/network/interfaces` | systemd-networkd（ALARM 自带 eth/en DHCP）| ifupdown + dhcpcd（`allow-hotplug`，不阻塞开机） | 全 DHCP 脚本服务（busybox `udhcpc` 扫所有有线网卡） |
 | 校时 | chrony（aliyun NTP） | systemd-timesyncd（写 `NTP=`） | systemd-timesyncd（drop-in 写 `NTP=`） | busybox `ntpd` |
-| rootfs 来源 | apk.static 离线装 sys-mode | 解上游 ALARM aarch64 tar.gz | mmdebstrap 直接引导进根分区（apt variant + 显式包表） | 解上游 eweOS aarch64 tarball |
+| rootfs 来源 | apk.static 离线装 sys-mode | 解上游 ALARM aarch64 tar.gz | mmdebstrap 直接引导进根分区（`important` variant + 显式包表） | 解上游 eweOS aarch64 tarball |
 | 首启 | 装 GPU/wifi 在线包 + 扩容 | 早期 sfdisk 扩容（无网）+ 网络后 pacman 装 mesa/wifi | 早期 sfdisk 扩容（无网）+ 生成 SSH 主机密钥；其余构建期已装好 | dinit oneshot 扩容（无网，sfdisk + resize2fs） |
 
 ## Arch 专项处理
@@ -42,10 +42,15 @@ eweOS = musl libc + busybox coreutils + pacman + dinit init，rolling，aarch64 
 
 ## Debian 专项处理
 
-目标是**最小化且开机快**：只装 Essential + apt + 一张显式短包表，不装 Recommends、内核与
-initramfs，用户态约 170M、129 个包。全部包在构建期装完，首启不需要联网。
+目标是**最小化但完整可用、开机快**：以 Debian 自己定义的基础系统（`important` 优先级，即最小
+netinst 装出来的那一层）为底，再显式列出方案依赖的包；不装 Recommends、dbus、内核与 initramfs，
+约 156 个包（rock5c 加 Wi-Fi 用户态 163 个）。全部包在构建期装完，首启不需要联网。
 
-- **引导**：`mmdebstrap --mode=unshare --variant=apt` 直接写进刚格式化的根分区（只允许空的
+- **为什么不更薄**：`apt`/`required` variant 实测不够用——trixie 的 `login` 已不是 Essential，
+  串口输完用户名不会问密码；没有 whiptail 时 debconf 在终端上找不到前端，每次 apt 都刷一屏警告。
+  `important` 正好补上 login、whiptail、less、nano、vim-tiny、ping、procps、cron、logrotate、nftables。
+  需要时可用 `DEBIAN_VARIANT` 换底。
+- **引导**：`mmdebstrap --mode=unshare --variant=important` 直接写进刚格式化的根分区（只允许空的
   `lost+found`），自带私有 mount 命名空间，不碰宿主 `/dev/pts`。引导源已含 `-updates` 与
   `-security`，镜像出厂即打好补丁。
 - **精简策略就是构建策略**：`resources/debian/dpkg.cfg`（排除 doc/man/info/locale，保留 copyright）

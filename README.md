@@ -19,7 +19,7 @@ Radxa E20C · Widora MangoPi M28K · Radxa ROCK 5C · Orange Pi Zero 3
   （U-Boot SPL 初始化 DRAM + 上游 ATF 现编 BL31）。
 - **主线 Linux 稳定版**（标签固定在 [`config/versions.conf`](config/versions.conf)）— 内核选项是 `kconfig/*.fragment` 可组合片段，而非命令式补丁。
 - **四选一根文件系统** — `alpine`（apk + OpenRC，~170M）、`archlinux`（pacman + systemd，~660M）、
-  `debian`（最小化 trixie：apt + systemd + ifupdown）或 `eweos`（musl + busybox + pacman + dinit，rolling）。
+  `debian`（最小化 trixie：Debian 基础系统 + systemd + ifupdown，无 dbus）或 `eweos`（musl + busybox + pacman + dinit，rolling）。
 
 成品是可直接 `dd` 到 eMMC / SD 的整盘镜像，`xz -T0 -6` 压成
 **`<板>-<发行版>-<内核版本>.img.xz`**，首启自动扩容。

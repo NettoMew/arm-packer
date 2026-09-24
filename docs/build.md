@@ -83,7 +83,8 @@ BTF 生成也会随 `JOBS` 并行，内存不足时不能只看 C 编译是否�
 | `ARCH_BUILD_KEYRING` | `1` | 仅 `archlinux`：构建期 qemu chroot 预置 pacman keyring；`0`=首启再初始化 |
 | `DEBIAN_SUITE` | `trixie` | 仅 `debian`：稳定版代号，自动带上 `-updates` 与 `-security` |
 | `DEBIAN_MIRROR` / `DEBIAN_SECURITY_MIRROR` | `deb.debian.org` / `security.debian.org` | 仅 `debian`：构建期与板上共用的软件源 |
-| `DEBIAN_EXTRA_PACKAGES` | 空 | 仅 `debian`：在最小包集之外追加的包（空格分隔），如 `procps less` |
+| `DEBIAN_VARIANT` | `important` | 仅 `debian`：mmdebstrap 基础层（Debian 优先级定义的最小可用系统）；更薄的 `required`/`apt` 缺 login 与 debconf 前端 |
+| `DEBIAN_EXTRA_PACKAGES` | 空 | 仅 `debian`：在基础系统之外追加的包（空格分隔），如 `curl htop` |
 | `DEBIAN_MASKED_UNITS` | apt/dpkg/e2scrub 周期任务 | 仅 `debian`：屏蔽的 systemd 单元（`fstrim.timer` 保留） |
 | `IMAGE_SIZE` | alpine `1G` / arch `4G` / debian `2G` / eweos `2G` | 构建镜像大小（稀疏 + 首启扩容） |
 | `ROOTFS_EXT4_FEATURES` | `^metadata_csum,^metadata_csum_seed,^orphan_file,^64bit` | 传给 `mkfs.ext4 -O` 的根分区特性；默认保守 ext4，避免 U-Boot 能读 `extlinux.conf` 却加载 `/boot/Image` 失败 |
