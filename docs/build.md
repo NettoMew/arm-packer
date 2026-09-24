@@ -75,6 +75,7 @@ BTF 生成也会随 `JOBS` 并行，内存不足时不能只看 C 编译是否�
 | `ROCK5C_UNLOCK` | `1` | RK3582 开核（RK3588S2 上为空操作） |
 | `ROCK5C_NVME_BOOT` | `0` | ROCK5C 可选 NVMe 优先 BootSTD/extlinux 引导；SD/eMMC/USB 为后备。不自动安装或清空 NVMe，不支持此配置下的 EFI 启动；见 [NVMe 说明](rock5c-nvme-boot.md) |
 | `ATF_REF` / `ATF_PLAT` | `master` / `sun50i_h616` | 仅 `opiz3`：上游 arm-trusted-firmware 分支与 BL31 平台 |
+| `QCOM_ESP_SIZE` | `512M` | 仅 Qualcomm 板（`dragon-q8b`）：ESP 大小，放 systemd-boot、内核与 dtb |
 | `SKIP_FETCH` | `0` | `1`=复用已克隆源码树，迭代更快 |
 | `CLEAN_KERNEL` | `0` | `1`=删内核 build 目录从头编（默认增量） |
 | `SKIP_BUILD` | `0` | `1`=跳过 U-Boot+内核编译，只跑 rootfs/镜像（须同板上次构建） |
@@ -86,7 +87,7 @@ BTF 生成也会随 `JOBS` 并行，内存不足时不能只看 C 编译是否�
 | `DEBIAN_VARIANT` | `important` | 仅 `debian`：mmdebstrap 基础层（Debian 优先级定义的最小可用系统）；更薄的 `required`/`apt` 缺 login 与 debconf 前端 |
 | `DEBIAN_EXTRA_PACKAGES` | 空 | 仅 `debian`：在基础系统之外追加的包（空格分隔），如 `curl htop` |
 | `DEBIAN_MASKED_UNITS` | apt/dpkg/e2scrub 周期任务 | 仅 `debian`：屏蔽的 systemd 单元（`fstrim.timer` 保留） |
-| `IMAGE_SIZE` | alpine `1G` / arch `4G` / debian `2G` / eweos `2G` | 构建镜像大小（稀疏 + 首启扩容） |
+| `IMAGE_SIZE` | alpine `1G` / arch `4G` / debian `2G` / eweos `2G` | 根文件系统大小（稀疏 + 首启扩容）；ESP 等其他分区另加 |
 | `ROOTFS_EXT4_FEATURES` | `^metadata_csum,^metadata_csum_seed,^orphan_file,^64bit` | 传给 `mkfs.ext4 -O` 的根分区特性；默认保守 ext4，避免 U-Boot 能读 `extlinux.conf` 却加载 `/boot/Image` 失败 |
 | `COMPRESS_IMAGE` | `1` | `1`=构建后 `xz -T0 -6` 打包，完整性检查通过才发布 `.img.xz` 并删除原始 `.img` |
 | `INSTALL_DEPS` | `1` | `0`=只检查依赖、缺失就报错，不自动装 |

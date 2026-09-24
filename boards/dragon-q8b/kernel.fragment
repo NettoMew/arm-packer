@@ -1,0 +1,24 @@
+# boards/dragon-q8b/kernel.fragment — Radxa Dragon Q8B board devices on top of
+# kconfig/qcom-sc8280xp.fragment.
+
+# 2× 2.5 GbE: Toshiba TC9564 (QPS615) PCIe switch with integrated XGMAC + QCA8081
+# PHYs. The switch's power control is built in so it is up before PCIe probes.
+CONFIG_PCI_PWRCTRL_TC9563=y
+CONFIG_STMMAC_ETH=y
+# The three TC956X symbols come from the board's patch series (linux/patches/).
+CONFIG_TOSHIBA_TC956X_PCI=m
+CONFIG_DWMAC_TC956X=m
+CONFIG_GPIO_TC956X=m
+CONFIG_QCA808X_PHY=y
+CONFIG_AT803X_PHY=y
+
+# HDMI: DP → Chrontel CH7218A (a simple-bridge compatible) → HDMI connector.
+CONFIG_DRM_SIMPLE_BRIDGE=y
+CONFIG_DRM_DISPLAY_CONNECTOR=y
+
+# Audio codec: WCD9385 over SoundWire.
+CONFIG_SND_SOC_WCD938X_SDW=m
+CONFIG_SND_SOC_WSA883X=m
+
+# Battery-backed RTC (st,m41t11 on i2c12).
+CONFIG_RTC_DRV_M41T80=y

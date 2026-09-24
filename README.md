@@ -2,9 +2,9 @@
 
 # 主线 SBC 固件构建器
 
-**从主线源码，为多块 Rockchip / Allwinner 开发板构建开箱即用的整盘镜像。**
+**从主线源码，为多块 Rockchip / Allwinner / Qualcomm 开发板构建开箱即用的整盘镜像。**
 
-Radxa E20C · Widora MangoPi M28K · Radxa ROCK 5C · Orange Pi Zero 3
+Radxa E20C · Widora MangoPi M28K · Radxa ROCK 5C · Orange Pi Zero 3 · Radxa Dragon Q8B
 &nbsp;·&nbsp; Alpine / Arch Linux / Debian / eweOS
 
 </div>
@@ -17,6 +17,7 @@ Radxa E20C · Widora MangoPi M28K · Radxa ROCK 5C · Orange Pi Zero 3
 
 - **主线 U-Boot**（`OF_UPSTREAM`）— Rockchip 用 rkbin DDR/BL31；Allwinner H618 全程开源无闭源 blob
   （U-Boot SPL 初始化 DRAM + 上游 ATF 现编 BL31）。
+- **板载 UEFI 的板子**（Qualcomm）— 不编引导程序：GPT 盘 = ESP + 根分区，锁版本的 systemd-boot 读 BLS 启动项。
 - **主线 Linux 稳定版**（标签固定在 [`config/versions.conf`](config/versions.conf)）— 内核选项是 `kconfig/*.fragment` 可组合片段，而非命令式补丁。
 - **四选一根文件系统** — `alpine`（apk + OpenRC，~170M）、`archlinux`（pacman + systemd，~660M）、
   `debian`（最小化 trixie：Debian 基础系统 + systemd + ifupdown，无 dbus）或 `eweos`（musl + busybox + pacman + dinit，rolling）。
@@ -32,6 +33,7 @@ make e20c                      # Radxa E20C（RK3528）
 make m28k                      # MangoPi M28K 有屏版（OLED 心电图仪表盘）
 make rock5c                    # Radxa ROCK 5C（RK3582 默认开核 → 7 核 + GPU）
 make opiz3                     # Orange Pi Zero 3（Allwinner H618，全开源引导链）
+DISTRO=debian make dragon-q8b  # Radxa Dragon Q8B（Qualcomm SC8280XP，UEFI + systemd-boot）
 make all                       # 全部板子
 
 DISTRO=archlinux make rock5c   # 换发行版（alpine / archlinux / debian / eweos）
@@ -54,6 +56,7 @@ xz -dc out/<镜像>.img.xz | sudo dd of=/dev/sdX bs=4M conv=fsync iflag=fullbloc
 | `m28k` | Widora MangoPi M28K | RK3528 | AIC8800 Wi-Fi6/BT，OLED 仪表盘 |
 | `rock5c` | Radxa ROCK 5C | RK3588S2 / RK3582 | RK3582 开核 → 7 核 + Mali-G610，NVMe，AIC8800 USB Wi-Fi |
 | `opiz3` | Orange Pi Zero 3 | Allwinner H618 | 全程开源无闭源 blob，Mali-G31 |
+| `dragon-q8b` | Radxa Dragon Q8B | Qualcomm SC8280XP | 板载 UEFI + systemd-boot，双 2.5GbE，NVMe/UFS，Adreno 690 |
 
 ## 文档
 

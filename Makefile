@@ -32,6 +32,7 @@ BUILD := scripts/build.sh
         m28k m28k-screen m28k-noscreen \
         rock5c rock5c-stock \
         opiz3 \
+        dragon-q8b \
         clean kernel-version kernel-check kernel-build kernel-promote test-kernel test-swupdate test-image
 
 help:
@@ -44,6 +45,7 @@ help:
 	@echo '  rock5c          Radxa ROCK 5C         (RK3588S2/RK3582，默认开核)'
 	@echo '  rock5c-stock    Radxa ROCK 5C         原厂分级 (ROCK5C_UNLOCK=0)'
 	@echo '  opiz3           Orange Pi Zero 3      (Allwinner H618)'
+	@echo '  dragon-q8b      Radxa Dragon Q8B      (Qualcomm SC8280XP，UEFI + systemd-boot)'
 	@echo
 	@echo '  all             依次构建全部板子'
 	@echo '  clean           删除 out/ 成品镜像'
@@ -77,8 +79,11 @@ rock5c-stock:
 opiz3:
 	BOARD=opiz3 $(BUILD)
 
+dragon-q8b:
+	BOARD=dragon-q8b $(BUILD)
+
 # 依次构建每个机型（任一失败即停）。
-all: e20c m28k-screen m28k-noscreen rock5c opiz3
+all: e20c m28k-screen m28k-noscreen rock5c opiz3 dragon-q8b
 
 # make <板>-dry：只解析配置、打印片段与钩子，不构建（秒级，无需联网/sudo）。
 %-dry:

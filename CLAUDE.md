@@ -1,11 +1,11 @@
 # CLAUDE.md — 项目向导（给 Claude Code 看的）
 
-主线 SBC 固件构建器：从主线源码为多块 Rockchip / Allwinner 开发板构建可直接烧录的整盘镜像。
+主线 SBC 固件构建器：从主线源码为多块 Rockchip / Allwinner / Qualcomm 开发板构建可直接烧录的整盘镜像。
 **三根正交插件轴：board × vendor × distro**，外加 kconfig 片段轴。引擎 `lib/*.sh` 里**没有任何
 board/vendor/distro 的 `if` 分支**——差异全在插件/配置里。加一块板/一个发行版 = 加一个文件，不改引擎。
 
 ## 入口 & 跑法
-- `make <board>`（`e20c`/`m28k`/`m28k-noscreen`/`rock5c`/`rock5c-stock`/`opiz3`/`all`）→ 调 `scripts/build.sh`。
+- `make <board>`（`e20c`/`m28k`/`m28k-noscreen`/`rock5c`/`rock5c-stock`/`opiz3`/`dragon-q8b`/`all`）→ 调 `scripts/build.sh`。
 - 等价 `BOARD=rock5c DISTRO=archlinux scripts/build.sh`。
 - `make <board>-dry` / `scripts/build.sh --dry-run`：只解析配置、打印片段/钩子/镜像名，**不构建、不联网、不 sudo**（秒级，验证改动的首选）。
 - `scripts/build.sh --stop-after-kconfig`：编到内核 `.config` 就停（用于对比 `.config`）。
@@ -16,8 +16,9 @@ board/vendor/distro 的 `if` 分支**——差异全在插件/配置里。加一
 ## 目录 / 职责
 ```
 scripts/build.sh    唯一入口(orchestrator)：解析 flags → 载 board.conf → 载 vendor+distro+hooks → 派生 → run_pipeline
-lib/log,env,deps,workspace,sources,uboot,kernel,image,rootfs,pipeline,aic8800.sh   引擎模块(distro/vendor 无关)
-lib/vendor/{rockchip,allwinner}.sh   厂商插件(启动链)：vendor_* 契约
+lib/log,env,deps,workspace,sources,kernel,image,rootfs,pipeline,aic8800.sh   引擎模块(distro/vendor 无关)
+lib/vendor/{rockchip,allwinner,qcom}.sh   厂商插件(启动链)：vendor_* 契约
+lib/boot/{uboot,uefi}.sh             启动方式，由厂商插件 source：U-Boot + extlinux / 板载 UEFI + systemd-boot(ESP, BLS)
 lib/distro/{alpine,archlinux,debian,eweos}.sh   发行版插件(用户态)：distro_* 契约
 lib/distro/common/systemd.sh         systemd 系插件(archlinux/debian)共用的离线原语，由插件自行 source
 boards/<board>/board.conf            每板声明式配置(必填键见下)
@@ -29,12 +30,14 @@ work/  out/                          源码树工作区 / 成品
 ```
 
 ## 三个契约（改引擎时照着调用，别加 if 分支）
-- **board.conf**（纯赋值）必填：`BOARD_VENDOR BOARD_SOC BOARD_UBOOT_DEFCONFIG BOARD_KERNEL_DTB
-  BOARD_IMAGE_PREFIX BOARD_HOSTNAME BOARD_MENU_TITLE BOARD_SERIAL_CONSOLE`；选填
-  `BOARD_SERIAL_BAUD BOARD_KERNEL_CMDLINE_EXTRA BOARD_SECOND_NIC BOARD_KERNEL_FRAGMENTS`。
-- **vendor_\***（`lib/vendor/<vendor>.sh`）：`vendor_select_blobs / _default_fragments / _fetch_extra /
-  _fetch_assert_skip / _assert_sources / _build_firmware / _uboot_make_args / _uboot_output /
-  _partition_table / _write_bootloader / _firmware_extras / _env_summary`。
+- **board.conf**（纯赋值）必填：`BOARD_VENDOR BOARD_SOC BOARD_KERNEL_DTB BOARD_IMAGE_PREFIX
+  BOARD_HOSTNAME BOARD_MENU_TITLE BOARD_SERIAL_CONSOLE` + 厂商要求的键（`vendor_required_keys`，
+  U-Boot 厂商要 `BOARD_UBOOT_DEFCONFIG`）；选填 `BOARD_SERIAL_BAUD BOARD_KERNEL_CMDLINE_EXTRA
+  BOARD_SECOND_NIC BOARD_NICS BOARD_KERNEL_FRAGMENTS`。可选 `firmware.lock`（按 commit + SHA-256 锁固件）。
+- **vendor_\***（`lib/vendor/<vendor>.sh`）：`vendor_required_keys / _select_blobs / _default_fragments /
+  _fetch_extra / _fetch_assert_skip / _assert_sources / _build_bootloader / _partition_table /
+  _partition_layout / _write_bootloader / _install_boot / _firmware_extras / _env_summary`。
+  分区布局每行 `名称 大小 文件系统 挂载点`（`rest` 取剩余）；`IMAGE_SIZE` 只算根分区，ESP 另加。
 - **distro_\***（`lib/distro/<distro>.sh`）：`distro_prepare / _bootstrap_rootfs / _install_pkgs /
   _write_repos / _configure_time / _configure_network / _add_wifi_iface / _configure_console /
   _enable_base_services / _enable_services / _install_oneshot / _adapt_local_d / _install_resize_service /
@@ -65,7 +68,12 @@ work/  out/                          源码树工作区 / 成品
   pty 失效、sudo/终端全崩**（救活：`pkexec mount -t devpts devpts /dev/pts -o gid=5,mode=620,ptmxmode=666`）；
   ④ 扩容是独立早期 `firstboot-grow.service`（sfdisk+resize2fs，无网），不依赖装 growpart。
 - 厂商差异：Rockchip = rkbin blob + `u-boot-rockchip.bin`@s64 + GPT；Allwinner = 现编 ATF BL31 +
-  `u-boot-sunxi-with-spl.bin`@8KiB + MBR。
+  `u-boot-sunxi-with-spl.bin`@8KiB + MBR；Qualcomm = 板载 UEFI，不写任何引导扇区，GPT = 512M ESP +
+  根分区，systemd-boot 读 BLS 启动项（内核、dtb 都在 ESP）。
+- **内核源码树每次构建都 `git clean`**（内核 O= 树外编译，安全）：板子补丁新增的文件不会残留到下一块板；
+  U-Boot 树只 `checkout`，因为它树内编译、`SKIP_BUILD=1` 要复用产物。
+- **Dragon Q8B**：59 个补丁在 `boards/dragon-q8b/linux/patches`（来源与刷新记录见同目录 README）；
+  `DRM_MSM=y` 依赖 `QCOM_OCMEM` 不能是 m（片段里已处理）；BIOS 第三方兼容选项须保持默认。
 
 ## 验证手段
 - 改完先 `bash -n` 全部脚本 + 各板 `--dry-run`（看 vendor/SoC、分区表、片段列表与顺序、钩子、镜像名、IMAGE_SIZE）。

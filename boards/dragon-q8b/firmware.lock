@@ -1,0 +1,27 @@
+# boards/dragon-q8b/firmware.lock — every firmware file the Dragon Q8B needs,
+# pinned by commit and SHA-256 (installed by install_firmware_lock, lib/rootfs.sh).
+#
+#   source NAME BASE_URL
+#   file   NAME PATH-UNDER-/lib/firmware SHA256
+#
+# The DSP pair comes from radxa-firmware, the build Radxa OS and Armbian ship: its
+# ADSP image carries Radxa's own service (fan control) on the same Qualcomm
+# ADSP.HT.5.6.c2-00037 base as the copy in linux-firmware. qcom/sc8280xp/qupv3fw.elf,
+# named by the DTS, is published nowhere; the UEFI firmware already sets the
+# serial engines up, so the kernel never needs it.
+
+source linux-firmware https://gitlab.com/kernel-firmware/linux-firmware/-/raw/b0ce527562283ed11af6cd8195f4f00085ee2477
+source radxa-firmware https://raw.githubusercontent.com/radxa-pkg/radxa-firmware/6a9efd21ebd78d4dd73939fd3b6a7ff3ef8801ca/radxa-firmware-sc8280xp/lib/firmware
+
+# Adreno 690 (shares the A660 microcode) and its zap shader. The SoC is not fused,
+# so the ThinkPad X13s zap shader the DTS names works unchanged.
+file linux-firmware qcom/a660_sqe.fw d222f3fe290ef0516ee0ec43082596bad2df0fcbc2e0bbb26987623cef90cf76
+file linux-firmware qcom/a660_gmu.bin 8acab7b417d9ebde89a1de9ae1e2c261d352fcab122e31ecd580cec9fe2ae5e7
+file linux-firmware qcom/sc8280xp/LENOVO/21BX/qcdxkmsuc8280.mbn d7b8cc648c2f020c0fb7770b2d844b40688e99fb541e45514533049611b34d5c
+
+# Video codec (Iris, Gen2 HFI).
+file linux-firmware qcom/vpu/vpu20_p4_gen2_s6.mbn 8d0931502da392529c4205226e8caf4ca1c8283c2a1b9e8c904c03442c617cb9
+
+# Audio DSP (also runs the fan and the USB-C controller) and compute DSP.
+file radxa-firmware qcom/sc8280xp/radxa/dragon-q8b/qcadsp8280.mbn 0f7de9946934a7b47188c5f561209ddc335fc373f81224f5f71a7924d6bb949a
+file radxa-firmware qcom/sc8280xp/qccdsp8280.mbn 0ce2d97f27aaf6ad24796a596ca07c0a77d44c8a85f015078a5f377719130c60

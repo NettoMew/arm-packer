@@ -39,3 +39,6 @@ aria2_download() {
 }
 
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# sha256_matches FILE SHA256 — true when FILE exists and has exactly that digest.
+sha256_matches() { [[ -f "$1" && "$(sha256sum "$1" | cut -d' ' -f1)" == "$2" ]]; }

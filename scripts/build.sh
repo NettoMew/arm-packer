@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # scripts/build.sh — orchestrator for the mainline SBC firmware builder
-# (board × vendor × distro: Rockchip/Allwinner × Alpine/Arch).
+# (board × vendor × distro: Rockchip/Allwinner/Qualcomm × Alpine/Arch/Debian/eweOS).
 #
 # Pipeline: parse flags → load board config → source vendor plugin + board hooks
 # → derive paths → run the build pipeline. Per-board knowledge lives in
 # boards/<board>/board.conf (+ optional hooks.sh); vendor boot-chain differences
-# in lib/vendor/<vendor>.sh; kernel options in kconfig/*.fragment. The engine
-# itself (lib/*.sh) has no board/vendor conditionals.
+# in lib/vendor/<vendor>.sh (+ the lib/boot/*.sh scheme it uses); kernel options
+# in kconfig/*.fragment. The engine itself (lib/*.sh) has no board/vendor
+# conditionals.
 #
 # Usage:
 #   BOARD=opiz3 scripts/build.sh                 # build (default BOARD=e20c)
@@ -89,7 +90,6 @@ source "${BOARD_CONF}"
 # Required keys.
 : "${BOARD_VENDOR:?board.conf must set BOARD_VENDOR}" \
   "${BOARD_SOC:?board.conf must set BOARD_SOC}" \
-  "${BOARD_UBOOT_DEFCONFIG:?board.conf must set BOARD_UBOOT_DEFCONFIG}" \
   "${BOARD_KERNEL_DTB:?board.conf must set BOARD_KERNEL_DTB}" \
   "${BOARD_IMAGE_PREFIX:?board.conf must set BOARD_IMAGE_PREFIX}" \
   "${BOARD_HOSTNAME:?board.conf must set BOARD_HOSTNAME}" \
@@ -100,11 +100,17 @@ source "${BOARD_CONF}"
 # shellcheck source=/dev/null
 source "${LIB_DIR}/env.sh"
 
-# Vendor boot-chain plugin (declares RKBIN_/ATF_ vars + the vendor_* contract).
+# Vendor boot-chain plugin (its boot scheme, blobs and the vendor_* contract).
 VENDOR_LIB="${LIB_DIR}/vendor/${BOARD_VENDOR}.sh"
 [[ -f "${VENDOR_LIB}" ]] || fatal "Unknown BOARD_VENDOR=${BOARD_VENDOR} (no ${VENDOR_LIB})"
 # shellcheck source=/dev/null
 source "${VENDOR_LIB}"
+
+# Keys the vendor's boot scheme needs on top of the generic ones (e.g. a U-Boot
+# defconfig); a UEFI vendor needs none.
+while IFS= read -r key; do
+  [[ -n "${!key:-}" ]] || fatal "board.conf must set ${key} (required by BOARD_VENDOR=${BOARD_VENDOR})"
+done < <(vendor_required_keys)
 
 # Distro plugin (userspace: package manager + init system + network).
 DISTRO_LIB="${LIB_DIR}/distro/${DISTRO}.sh"
@@ -127,7 +133,7 @@ IMAGE_PATH="${OUTPUT_DIR}/${IMAGE_NAME:-${IMAGE_NAME_PREFIX}-pending.img}"
 vendor_select_blobs
 
 # Engine modules.
-for m in deps workspace sources uboot kernel image rootfs pipeline kernel-update swupdate; do
+for m in deps workspace sources kernel image rootfs pipeline kernel-update swupdate; do
   # shellcheck source=/dev/null
   source "${LIB_DIR}/${m}.sh"
 done
@@ -142,8 +148,6 @@ if [[ "${DRY_RUN}" == "1" ]]; then
   log "vendor/soc: ${BOARD_VENDOR}/${BOARD_SOC}"
   distro_env_summary
   vendor_env_summary
-  log "u-boot source: ${UBOOT_REPO} @ ${UBOOT_REF}"
-  log "u-boot defconfig: ${UBOOT_DEFCONFIG}"
   log "kernel source: ${KERNEL_REPO} @ ${KERNEL_REF}"
   if [[ -n "${KERNEL_ACTION}" ]]; then
     kernel_require_release_tag "${KERNEL_REF}"
@@ -154,7 +158,9 @@ if [[ "${DRY_RUN}" == "1" ]]; then
   log "offline SWUpdate: ${ENABLE_SWUPDATE} (packages + public key required when enabled)"
   log "image: ${OUTPUT_DIR}/${IMAGE_NAME:-${IMAGE_NAME_PREFIX}-<kernelversion>.img} (size ${IMAGE_SIZE})"
   log "console: ${SERIAL_CONSOLE},${SERIAL_BAUD}n8"
+  load_partition_layout
   log "partition table: $(vendor_partition_table)"
+  while IFS= read -r line; do log "  ${line}"; done < <(describe_partition_layout)
   log "wired NICs (all DHCP): ${BOARD_NICS}"
   log "full linux-firmware: ${FULL_FIRMWARE}"
   log "cmdline extra: ${BOARD_KERNEL_CMDLINE_EXTRA:-<none>}"

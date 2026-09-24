@@ -1,0 +1,120 @@
+# qcom-sc8280xp.fragment — Qualcomm SC8280XP (Snapdragon 8cx Gen 3) SoC support.
+# Merged after the distro base by lib/kernel.sh (vendor_default_fragments in
+# lib/vendor/qcom.sh). The distro base already builds most of the boot path in;
+# this fragment states that path explicitly and moves the few remaining pieces
+# from modules to built-ins. There is no initramfs, so everything between power-on
+# and a mounted root (clocks, interconnect, PMIC, storage, PCIe, serial) must be
+# =y; drivers that load firmware from the rootfs stay modules.
+# Values follow Armbian's tested sc8280xp-edge configuration.
+
+# Clocks, power domains, interconnect, pinctrl.
+CONFIG_ARCH_QCOM=y
+CONFIG_SC_GCC_8280XP=y
+CONFIG_SC_DISPCC_8280XP=y
+CONFIG_SC_GPUCC_8280XP=y
+CONFIG_SC_LPASSCC_8280XP=m
+CONFIG_SM_VIDEOCC_8350=m
+CONFIG_QCOM_CLK_RPMH=y
+CONFIG_QCOM_RPMH=y
+CONFIG_QCOM_RPMHPD=y
+CONFIG_QCOM_COMMAND_DB=y
+CONFIG_QCOM_AOSS_QMP=y
+CONFIG_QCOM_LLCC=y
+CONFIG_REGULATOR_QCOM_RPMH=y
+CONFIG_INTERCONNECT_QCOM=y
+CONFIG_INTERCONNECT_QCOM_SC8280XP=y
+CONFIG_INTERCONNECT_QCOM_OSM_L3=y
+CONFIG_ARM_QCOM_CPUFREQ_HW=y
+CONFIG_PINCTRL_MSM=y
+CONFIG_PINCTRL_SC8280XP=y
+CONFIG_PINCTRL_SC8280XP_LPASS_LPI=m
+CONFIG_PINCTRL_QCOM_SPMI_PMIC=y
+CONFIG_SPMI=y
+CONFIG_SPMI_MSM_PMIC_ARB=y
+CONFIG_MFD_SPMI_PMIC=y
+
+# Serial engines (the console is uart17 → ttyMSM0) and their DMA.
+CONFIG_QCOM_GENI_SE=y
+CONFIG_SERIAL_QCOM_GENI=y
+CONFIG_SERIAL_QCOM_GENI_CONSOLE=y
+CONFIG_QCOM_GPI_DMA=y
+CONFIG_I2C_QCOM_GENI=m
+CONFIG_SPI_QCOM_GENI=m
+
+# IOMMUs: SMMU-500 for most masters, SMMUv3 for PCIe once Linux owns it (EL2).
+CONFIG_ARM_SMMU=y
+CONFIG_ARM_SMMU_QCOM=y
+CONFIG_ARM_SMMU_V3=y
+CONFIG_QCOM_SCM=y
+
+# Root storage and the buses leading to it: UFS, NVMe on PCIe, SD, USB.
+CONFIG_SCSI_UFSHCD=y
+CONFIG_SCSI_UFSHCD_PLATFORM=y
+CONFIG_SCSI_UFS_QCOM=y
+CONFIG_PHY_QCOM_QMP=y
+CONFIG_PHY_QCOM_QMP_UFS=y
+CONFIG_PHY_QCOM_QMP_PCIE=y
+CONFIG_PHY_QCOM_QMP_COMBO=y
+CONFIG_PHY_QCOM_QMP_USB=y
+CONFIG_PHY_QCOM_USB_SNPS_FEMTO_V2=y
+CONFIG_PCIE_QCOM=y
+CONFIG_PCI_PWRCTRL=y
+CONFIG_BLK_DEV_NVME=y
+CONFIG_MMC_SDHCI_MSM=y
+CONFIG_USB_DWC3=y
+CONFIG_USB_DWC3_QCOM=y
+CONFIG_USB_ONBOARD_DEV=y
+CONFIG_USB_STORAGE=y
+
+# Remote processors (ADSP runs the fan and the Type-C controller, CDSP compute),
+# the QMI router and the in-kernel protection-domain mapper.
+CONFIG_REMOTEPROC=y
+CONFIG_REMOTEPROC_CDEV=y
+CONFIG_QCOM_Q6V5_PAS=m
+CONFIG_QCOM_SYSMON=m
+CONFIG_QCOM_IPCC=y
+CONFIG_QCOM_SMP2P=y
+CONFIG_RPMSG_QCOM_GLINK_SMEM=m
+CONFIG_QRTR=y
+CONFIG_QRTR_SMD=m
+CONFIG_QCOM_PD_MAPPER=y
+CONFIG_QCOM_FASTRPC=m
+
+# PMIC GLINK: USB-C role/orientation and DP alt mode go through the ADSP.
+CONFIG_QCOM_PMIC_GLINK=y
+CONFIG_UCSI_PMIC_GLINK=m
+CONFIG_TYPEC=y
+CONFIG_TYPEC_UCSI=m
+CONFIG_TYPEC_MUX_GPIO_SBU=y
+CONFIG_TYPEC_DP_ALTMODE=m
+CONFIG_BATTERY_QCOM_BATTMGR=m
+
+# Display (DPU + DP/eDP PHY) built in for an early console; the Adreno 690
+# fetches its firmware from the rootfs on first use.
+CONFIG_DRM_MSM=y
+# DRM_MSM depends on "QCOM_OCMEM || QCOM_OCMEM=n": the distro base builds OCMEM (an
+# older Snapdragon on-chip memory, unused here) as a module, which would cap
+# DRM_MSM at =m. Building the small driver in lifts the cap.
+CONFIG_QCOM_OCMEM=y
+CONFIG_PHY_QCOM_EDP=y
+CONFIG_DRM_DISPLAY_DP_AUX_CEC=y
+
+# Thermal sensors and ADC.
+CONFIG_QCOM_TSENS=y
+CONFIG_QCOM_SPMI_ADC5=m
+CONFIG_QCOM_SPMI_ADC_TM5=m
+
+# Video codec (Iris) and audio (LPASS + SoundWire).
+CONFIG_VIDEO_QCOM_IRIS=m
+CONFIG_SND_SOC_QCOM=m
+CONFIG_SND_SOC_SC8280XP=m
+CONFIG_SOUNDWIRE=m
+CONFIG_SOUNDWIRE_QCOM=m
+CONFIG_SND_SOC_LPASS_WSA_MACRO=m
+CONFIG_SND_SOC_LPASS_VA_MACRO=m
+CONFIG_SND_SOC_LPASS_RX_MACRO=m
+CONFIG_SND_SOC_LPASS_TX_MACRO=m
+
+# The kernel is started by systemd-boot through its EFI stub.
+CONFIG_EFI=y
+CONFIG_EFI_STUB=y

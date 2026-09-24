@@ -39,12 +39,6 @@ IMAGE_NAME="${IMAGE_NAME:-}"   # empty = auto-compose with the kernel version af
 JOBS="${JOBS:-$(nproc)}"
 export MAKEFLAGS="${MAKEFLAGS:--j${JOBS}}"
 
-# Mainline U-Boot. Use "master" for the latest mainline development tree, or a
-# release tag such as v2026.01 for reproducibility.
-UBOOT_REPO="${UBOOT_REPO:-${DEFAULT_UBOOT_REPO}}"
-UBOOT_REF="${UBOOT_REF:-${DEFAULT_UBOOT_REF}}"
-UBOOT_DEFCONFIG="${UBOOT_DEFCONFIG:-${BOARD_UBOOT_DEFCONFIG}}"
-
 # Upstream stable Linux, pinned to a release tag for reproducible builds.
 # Stable point releases live in stable/linux.git, not torvalds/linux.git.
 # Override KERNEL_REPO/KERNEL_REF if you need a different mirror or branch/tag.
@@ -67,12 +61,9 @@ SWUPDATE_PUBLIC_KEY="${SWUPDATE_PUBLIC_KEY:-}"
 # board.conf: RK3528 ttyS0 / RK3588 ttyS2 @ 1.5M, Allwinner H618 ttyS0 @ 115200).
 SERIAL_CONSOLE="${SERIAL_CONSOLE:-${BOARD_SERIAL_CONSOLE}}"
 SERIAL_BAUD="${SERIAL_BAUD:-${BOARD_SERIAL_BAUD}}"
+# First partition starts at 16 MiB: clear of every vendor's raw-sector bootloader
+# (Rockchip idbloader/u-boot.itb up to ~12 MiB, Allwinner SPL at 8 KiB).
 ROOTFS_PART_START_SECTOR="${ROOTFS_PART_START_SECTOR:-32768}"
-# Rockchip combined u-boot-rockchip.bin is written at sector 64 (GPT disk).
-BOOTLOADER_SEEK_SECTOR="${BOOTLOADER_SEEK_SECTOR:-64}"
-# Allwinner u-boot-sunxi-with-spl.bin is written at 8 KiB (sunxi BROM contract);
-# the rootfs starts at sector 32768 (16 MiB), well clear of it.
-SPL_SEEK_KIB="${SPL_SEEK_KIB:-8}"
 ROOTFS_LABEL="${ROOTFS_LABEL:-alpine_root}"
 # Keep the root filesystem readable by U-Boot's conservative ext4 implementation.
 # Recent e2fsprogs defaults can enable metadata_csum_seed/orphan_file/64bit; these
@@ -164,17 +155,20 @@ COMPRESS_IMAGE="${COMPRESS_IMAGE:-1}"
 DOWNLOAD_DIR="${WORKSPACE}/downloads"
 SRC_DIR="${WORKSPACE}/src"
 BUILD_DIR="${WORKSPACE}/build"
-UBOOT_DIR="${SRC_DIR}/u-boot"
 KERNEL_SRC_DIR="${SRC_DIR}/linux"
 KERNEL_BUILD_DIR="${BUILD_DIR}/linux-build"
 IMAGE_PATH="${OUTPUT_DIR}/${IMAGE_NAME}"
-# Vendor-specific source trees + blob paths (RKBIN_DIR / ATF_DIR / BL31_BIN / …)
-# are declared by lib/vendor/<vendor>.sh, which is sourced right after this file.
+# Boot-chain source trees + blob paths (UBOOT_DIR / RKBIN_DIR / ATF_DIR / BL31_BIN / …)
+# are declared by lib/vendor/<vendor>.sh and the lib/boot/*.sh scheme it sources.
 
 # ------------------------------ Global state ---------------------------------
 LOOPDEV=""
 MOUNTPOINT_ROOT=""
 ROOT_PARTUUID=""
+# Partition of the layout that mounts at / (1-based), and where the ESP mounts
+# when the layout has one; set by load_partition_layout (lib/image.sh).
+ROOT_PART=""
+ESP_MOUNT=""
 SUDO=""
 RESOLVED_KERNEL_VERSION=""
 RESOLVED_ALPINE_URL=""

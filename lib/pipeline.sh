@@ -26,7 +26,6 @@ print_environment_summary() {
   log "Vendor/SoC: ${BOARD_VENDOR}/${BOARD_SOC}"
   distro_env_summary
   vendor_env_summary
-  log "U-Boot: ${UBOOT_REPO} @ ${UBOOT_REF} (${UBOOT_DEFCONFIG})"
   log "Linux: ${KERNEL_REPO} @ ${KERNEL_REF} (${KERNEL_DEFCONFIG}, ${KERNEL_DTB})"
   log "Console: ${SERIAL_CONSOLE},${SERIAL_BAUD}n8"
 }
@@ -39,12 +38,11 @@ run_pipeline() {
   distro_prepare                 # host-side payload + tooling (apk.static / rootfs tarball)
   fetch_sources
   if [[ "${SKIP_BUILD}" == "1" ]]; then
-    section "SKIP_BUILD=1: reusing existing U-Boot + kernel artifacts"
+    section "SKIP_BUILD=1: reusing existing bootloader + kernel artifacts"
     [[ -f "${KERNEL_BUILD_DIR}/arch/arm64/boot/Image" ]] || fatal "SKIP_BUILD=1 but kernel Image missing — build once for this board first."
     [[ -f "${KERNEL_BUILD_DIR}/arch/arm64/boot/dts/${KERNEL_DTB}" ]] || fatal "SKIP_BUILD=1 but kernel DTB missing (${KERNEL_DTB}) — last build was a different board?"
   else
-    vendor_build_firmware        # Allwinner: build ATF BL31 (no-op on Rockchip)
-    build_uboot
+    vendor_build_bootloader      # U-Boot (+ ATF on Allwinner); nothing on UEFI boards
     build_kernel
     if [[ "${STOP_AFTER_KCONFIG:-0}" == "1" ]]; then
       section "STOP_AFTER_KCONFIG=1: stopping after kernel .config (no image built)"
@@ -55,7 +53,7 @@ run_pipeline() {
   make_empty_image_and_partition
   write_bootloader_to_image
   attach_loop
-  format_root_partition
+  format_partitions
   mount_root_partition
   populate_rootfs
   finalize_image

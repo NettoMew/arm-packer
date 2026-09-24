@@ -63,15 +63,17 @@ resolve_kernel_identity() {
 
 reset_shared_trees() {
   # Reset the shared U-Boot tree to pristine first, so a per-board U-Boot patch
-  # (e.g. the rock5c rk3582 unlock) never carries over to another board.
-  if [[ -d "${UBOOT_DIR}/.git" ]]; then
+  # (e.g. the rock5c rk3582 unlock) never carries over to another board. Only
+  # tracked files: U-Boot builds in-tree and SKIP_BUILD=1 reuses its outputs.
+  if [[ -d "${UBOOT_DIR:-}/.git" ]]; then
     run git -C "${UBOOT_DIR}" checkout -- . || true
   fi
-  # Reset the shared kernel tree and strip any m28k DTS from a previous build so
-  # the result is order-independent (the m28k hook re-adds its own).
+  # The kernel builds out of tree (O=), so its source tree can be made pristine
+  # outright: tracked edits reverted and files a board added removed (m28k's DTS,
+  # the new drivers and DTS a patch series creates), whatever board ran last.
   if [[ -d "${KERNEL_SRC_DIR}/.git" ]]; then
     run git -C "${KERNEL_SRC_DIR}" checkout -- . || true
-    rm -f "${KERNEL_SRC_DIR}/arch/arm64/boot/dts/rockchip/rk3528-mangopi-m28"*.dts* 2>/dev/null || true
+    run git -C "${KERNEL_SRC_DIR}" clean -fdq || true
   fi
 }
 
@@ -83,20 +85,18 @@ fetch_sources() {
   # ("local changes would be overwritten"). Order-independent across boards.
   reset_shared_trees
 
+  # The vendor fetches its boot chain (U-Boot, rkbin, ATF, systemd-boot, ...).
   if [[ "${SKIP_FETCH}" == "1" ]]; then
     section "SKIP_FETCH=1: reusing existing source trees"
-    [[ -d "${UBOOT_DIR}/.git" ]] || fatal "SKIP_FETCH=1 but U-Boot tree missing: ${UBOOT_DIR}"
     vendor_fetch_assert_skip
     [[ -d "${KERNEL_SRC_DIR}/.git" ]] || fatal "SKIP_FETCH=1 but Linux tree missing: ${KERNEL_SRC_DIR}"
   else
-    git_clone_or_update "${UBOOT_REPO}" "${UBOOT_REF}" "${UBOOT_DIR}"
     vendor_fetch_extra
     git_clone_or_refresh_shallow "${KERNEL_REPO}" "${KERNEL_REF}" "${KERNEL_SRC_DIR}"
   fi
 
   board_hook inject_sources
 
-  [[ -f "${UBOOT_DIR}/configs/${UBOOT_DEFCONFIG}" ]] || fatal "U-Boot defconfig not found: configs/${UBOOT_DEFCONFIG}"
   vendor_assert_sources
   [[ -f "${KERNEL_SRC_DIR}/arch/arm64/boot/dts/${KERNEL_DTS}" ]] || fatal "Kernel DTS source missing: arch/arm64/boot/dts/${KERNEL_DTS}"
   resolve_kernel_identity
