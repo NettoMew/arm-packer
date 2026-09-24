@@ -3,8 +3,9 @@
 # Same distro_* contract as lib/distro/alpine.sh / archlinux.sh / eweos.sh.
 #
 # mmdebstrap bootstraps the rootfs straight into the freshly formatted root
-# partition: the "apt" variant (Essential + apt) plus a short explicit package
-# list, with no Recommends, no kernel and no initramfs. Its package set already
+# partition: Debian's own base system (the "important" variant, what a minimal
+# netinst installs) plus the few packages the image's design relies on, with no
+# Recommends, no kernel and no initramfs. Its package set already
 # includes the -updates and -security archives, so the image ships patched. The
 # dpkg path filter (resources/debian/dpkg.cfg) governs the bootstrap itself and
 # stays in the image for every later install; resources/debian/rootfs is laid
@@ -39,10 +40,15 @@ DEBIAN_COMPONENTS="${DEBIAN_COMPONENTS:-main non-free-firmware}"
 # its own copy (same path, from debian-archive-keyring) in its sources file.
 DEBIAN_KEYRING="${DEBIAN_KEYRING:-/usr/share/keyrings/debian-archive-keyring.gpg}"
 DEBIAN_TARGET_KEYRING=/usr/share/keyrings/debian-archive-keyring.gpg
-# The whole userspace beyond Essential + apt. login is only Priority: required
-# since trixie, not Essential, so the apt variant leaves it out; without it agetty
-# has no /bin/login and the console never asks for a password. fdisk (sfdisk) and
-# e2fsprogs (resize2fs) serve the first-boot grow; nothing here pulls in dbus.
+# Debian's priority-based base: "important" (required + important) is the system
+# Debian itself calls usable: login, whiptail for debconf dialogs, less, nano,
+# vim-tiny, ping, procps, cron, logrotate, nftables. Anything thinner ("apt",
+# "required") leaves a console that cannot even ask for a password (login is
+# required, not Essential) and debconf without a frontend.
+DEBIAN_VARIANT="${DEBIAN_VARIANT:-important}"
+# Named explicitly on top of the variant: the packages the image's design depends
+# on (network, SSH, time, first-boot grow), so no future change of Debian's
+# priorities can drop them silently. Nothing here pulls in dbus.
 DEBIAN_PACKAGES="${DEBIAN_PACKAGES:-login systemd systemd-sysv udev kmod ifupdown dhcpcd-base iproute2 netbase openssh-server systemd-timesyncd fdisk e2fsprogs tzdata ca-certificates}"
 DEBIAN_EXTRA_PACKAGES="${DEBIAN_EXTRA_PACKAGES:-}"
 # FULL_FIRMWARE=1: the firmware pool for plug-in GPUs, Wi-Fi and BT dongles.
@@ -135,7 +141,7 @@ distro_bootstrap_rootfs() {
 
   # --mode=unshare runs every chroot step in mmdebstrap's own mount namespace,
   # also when started as root. The target may hold only the empty lost+found.
-  run_sudo mmdebstrap --mode=unshare --variant=apt --architectures=arm64 \
+  run_sudo mmdebstrap --mode=unshare --variant="${DEBIAN_VARIANT}" --architectures=arm64 \
     --dpkgopt="${DEBIAN_RESOURCES}/dpkg.cfg" --aptopt="${DEBIAN_RESOURCES}/apt.conf" \
     --include="${include}" --setup-hook="${overlay}" \
     "${DEBIAN_SUITE}" "${MOUNTPOINT_ROOT}" "${DEBIAN_SOURCES_FILE}"
