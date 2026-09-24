@@ -39,9 +39,11 @@ DEBIAN_COMPONENTS="${DEBIAN_COMPONENTS:-main non-free-firmware}"
 # its own copy (same path, from debian-archive-keyring) in its sources file.
 DEBIAN_KEYRING="${DEBIAN_KEYRING:-/usr/share/keyrings/debian-archive-keyring.gpg}"
 DEBIAN_TARGET_KEYRING=/usr/share/keyrings/debian-archive-keyring.gpg
-# The whole userspace beyond Essential + apt. fdisk (sfdisk) and e2fsprogs
-# (resize2fs) serve the first-boot grow; nothing here pulls in dbus.
-DEBIAN_PACKAGES="${DEBIAN_PACKAGES:-systemd systemd-sysv udev kmod ifupdown dhcpcd-base iproute2 netbase openssh-server systemd-timesyncd fdisk e2fsprogs tzdata ca-certificates}"
+# The whole userspace beyond Essential + apt. login is only Priority: required
+# since trixie, not Essential, so the apt variant leaves it out; without it agetty
+# has no /bin/login and the console never asks for a password. fdisk (sfdisk) and
+# e2fsprogs (resize2fs) serve the first-boot grow; nothing here pulls in dbus.
+DEBIAN_PACKAGES="${DEBIAN_PACKAGES:-login systemd systemd-sysv udev kmod ifupdown dhcpcd-base iproute2 netbase openssh-server systemd-timesyncd fdisk e2fsprogs tzdata ca-certificates}"
 DEBIAN_EXTRA_PACKAGES="${DEBIAN_EXTRA_PACKAGES:-}"
 # FULL_FIRMWARE=1: the firmware pool for plug-in GPUs, Wi-Fi and BT dongles.
 DEBIAN_FIRMWARE_PACKAGES="${DEBIAN_FIRMWARE_PACKAGES:-firmware-linux-free firmware-linux-nonfree firmware-realtek firmware-atheros firmware-brcm80211 firmware-mediatek firmware-iwlwifi firmware-libertas}"
