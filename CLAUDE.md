@@ -18,11 +18,13 @@ board/vendor/distro 的 `if` 分支**——差异全在插件/配置里。加一
 scripts/build.sh    唯一入口(orchestrator)：解析 flags → 载 board.conf → 载 vendor+distro+hooks → 派生 → run_pipeline
 lib/log,env,deps,workspace,sources,uboot,kernel,image,rootfs,pipeline,aic8800.sh   引擎模块(distro/vendor 无关)
 lib/vendor/{rockchip,allwinner}.sh   厂商插件(启动链)：vendor_* 契约
-lib/distro/{alpine,archlinux}.sh     发行版插件(用户态)：distro_* 契约
+lib/distro/{alpine,archlinux,debian,eweos}.sh   发行版插件(用户态)：distro_* 契约
+lib/distro/common/systemd.sh         systemd 系插件(archlinux/debian)共用的离线原语，由插件自行 source
 boards/<board>/board.conf            每板声明式配置(必填键见下)
 boards/{m28k,rock5c}/hooks.sh        板级钩子(可选)：board_* 函数；就近放 DTS/补丁/固件移植/OLED
 kconfig/*.fragment + distro-arm64.config   可组合内核片段(见 kconfig/README.md)
 resources/rootfs/                    固定 rootfs 文件(resize 脚本、wpa 模板、interfaces 基底)
+resources/systemd/  resources/debian/   systemd 早期扩容单元 / Debian 的 dpkg+apt 策略与 rootfs 覆盖层
 work/  out/                          源码树工作区 / 成品
 ```
 
@@ -73,6 +75,6 @@ work/  out/                          源码树工作区 / 成品
 
 ## 加新东西
 - **加板**：丢 `boards/<board>/board.conf`（+ 需要时 `hooks.sh`/`kernel.fragment`/资源），引擎零改动。
-- **加发行版**：写 `lib/distro/<name>.sh` 实现 `distro_*` 契约（Debian 用 debootstrap+systemd 同构即可），引擎零改动。
+- **加发行版**：写 `lib/distro/<name>.sh` 实现 `distro_*` 契约（systemd 系直接复用 `lib/distro/common/systemd.sh`），引擎零改动。
 
 注：仓库目录名是 `rockchip/alpine`（历史），但现已多厂商多发行版；别被名字误导。

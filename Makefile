@@ -56,7 +56,7 @@ help:
 	@echo '  test-image      XZ 打包与失败保护回归（不写磁盘设备）'
 	@echo
 	@echo
-	@echo '发行版（DISTRO，默认 alpine）：DISTRO=archlinux make <板> 产出 *-archlinux-*.img.xz'
+	@echo '发行版（DISTRO，默认 alpine；另有 archlinux / debian / eweos）：DISTRO=debian make <板> 产出 *-debian-*.img.xz'
 	@echo '透传开关示例： make rock5c ROCK5C_UNLOCK=0 / DISTRO=archlinux make opiz3 / make opiz3 SKIP_FETCH=1'
 
 e20c:

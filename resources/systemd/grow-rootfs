@@ -1,0 +1,23 @@
+#!/bin/bash
+# Grow the root partition to fill the disk and online-resize ext4, then disable
+# itself. Uses sfdisk (util-linux) + resize2fs (e2fsprogs) — both in base, no net.
+set -u
+flag=/var/lib/misc/.rootfs-grown
+[ -f "$flag" ] && exit 0
+mkdir -p /var/lib/misc
+mm=$(awk '$5=="/"{print $3; exit}' /proc/self/mountinfo 2>/dev/null)
+[ -n "$mm" ] || exit 0
+sys=/sys/dev/block/$mm
+[ -f "$sys/partition" ] || exit 0
+partno=$(cat "$sys/partition")
+part=/dev/$(sed -n 's/^DEVNAME=//p' "$sys/uevent")
+disk=/dev/$(basename "$(dirname "$(readlink -f "$sys")")")
+[ -b "$part" ] && [ -b "$disk" ] && [ -n "$partno" ] || exit 0
+# Extend the last partition to the end of the disk (handles MBR + GPT; sfdisk
+# relocates the GPT backup header). partx -u updates the in-use partition size.
+echo ', +' | sfdisk -N "$partno" --no-reread --force "$disk" >/dev/null 2>&1 || true
+partx -u "$disk" >/dev/null 2>&1 || partprobe "$disk" >/dev/null 2>&1 || true
+resize2fs "$part" >/dev/null 2>&1 || true
+: > "$flag"
+logger -t grow-rootfs "rootfs ($part) grown to fill $disk" 2>/dev/null || true
+exit 0

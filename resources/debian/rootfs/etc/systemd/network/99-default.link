@@ -1,0 +1,11 @@
+# Replaces systemd's 99-default.link without its NamePolicy= line: interfaces
+# keep their kernel names (eth0, wlan0), matching /etc/network/interfaces and the
+# other distros arm-packer builds. The predictable names (end0, ...) are still
+# attached as alternative names, so `ip link show end0` keeps working.
+
+[Match]
+OriginalName=*
+
+[Link]
+AlternativeNamesPolicy=database onboard slot path mac
+MACAddressPolicy=persistent

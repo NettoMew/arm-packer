@@ -1,0 +1,15 @@
+[Unit]
+Description=First-boot rootfs grow (sfdisk + resize2fs)
+DefaultDependencies=no
+After=systemd-remount-fs.service local-fs.target
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
+ConditionPathExists=!/var/lib/misc/.rootfs-grown
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/grow-rootfs
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

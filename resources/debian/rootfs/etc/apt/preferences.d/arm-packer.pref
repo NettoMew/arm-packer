@@ -1,0 +1,6 @@
+# The board boots the mainline kernel that arm-packer installs into /boot, with
+# no initramfs. A packaged kernel or initramfs generator could only compete with
+# it, so apt never installs one.
+Package: linux-image-* linux-headers-* initramfs-tools* dracut*
+Pin: release *
+Pin-Priority: -1

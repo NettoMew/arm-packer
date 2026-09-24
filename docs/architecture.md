@@ -40,6 +40,8 @@ lib/                          # 引擎模块（无 board/vendor/distro 分支）
   vendor/allwinner.sh         #   现编 ATF BL31 / u-boot-sunxi-with-spl.bin@8KiB / MBR
   distro/alpine.sh            #   apk + OpenRC + ifupdown
   distro/archlinux.sh         #   ALARM + pacman + systemd（删自带内核/固件、预置 keyring、早期扩容）
+  distro/debian.sh            #   mmdebstrap 最小 trixie + apt + systemd + ifupdown（构建期装全，首启免网）
+  distro/common/systemd.sh    #   systemd 系插件共用的离线原语（enable/mask、串口 getty、早期扩容、local.d 适配）
   distro/eweos.sh             #   eweOS tarball + pacman + dinit（musl/busybox，qemu chroot 装包、跳 root fsck）
 boards/<board>/board.conf     # 每块板的声明式配置（vendor/soc/defconfig/dtb/镜像前缀/串口…）
 boards/m28k/                  #   有屏 M28K：hooks.sh + kernel.fragment + 注入源

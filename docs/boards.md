@@ -1,7 +1,7 @@
 # 支持的板子
 
 镜像名 = `<前缀>-<发行版>-<内核版本>.img.xz`；下表只列前缀，`<发行版>` 由 `DISTRO=` 决定
-（`alpine` / `archlinux` / `eweos`）。例如 `make rock5c` 出 `…-alpine-<ver>`，`DISTRO=eweos make rock5c`
+（`alpine` / `archlinux` / `debian` / `eweos`）。例如 `make rock5c` 出 `…-alpine-<ver>`，`DISTRO=eweos make rock5c`
 出 `…-eweos-<ver>`。
 
 | `BOARD` | 板子 | SoC | 前缀 | 说明 |

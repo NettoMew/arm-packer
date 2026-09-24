@@ -11,6 +11,9 @@
 #
 # shellcheck disable=SC2034
 
+# shellcheck source=common/systemd.sh
+source "${LIB_DIR}/distro/common/systemd.sh"
+
 ARCH_ROOTFS_URL="${ARCH_ROOTFS_URL:-http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz}"
 GPU_USERSPACE_PACKAGES="${GPU_USERSPACE_PACKAGES:-mesa}"
 WIFI_USERSPACE_PACKAGES="${WIFI_USERSPACE_PACKAGES:-wpa_supplicant iw bluez bluez-utils}"
@@ -27,7 +30,6 @@ fi
 
 ARCH_FIRSTBOOT_PKGS=""
 ARCH_FIRSTBOOT_SERVICES=""
-ARCH_RESIZE_AT_FIRSTBOOT=0
 ARCH_ROOTFS_TARBALL=""
 
 # Lean image (default on): we boot our own mainline kernel and ship each board's
@@ -210,10 +212,7 @@ EOF
 
 distro_configure_console() {
   section "Enabling systemd serial console (serial-getty@${SERIAL_CONSOLE})"
-  # agetty inherits the baud from the kernel console=… line; just enable the unit.
-  run_sudo mkdir -p "${MOUNTPOINT_ROOT}/etc/systemd/system/getty.target.wants"
-  run_sudo ln -sf "/usr/lib/systemd/system/serial-getty@.service" \
-    "${MOUNTPOINT_ROOT}/etc/systemd/system/getty.target.wants/serial-getty@${SERIAL_CONSOLE}.service"
+  systemd_enable_serial_getty
   # pam_securetty gates root login per-tty; ALARM's securetty lists ttyS0 but not
   # e.g. ttyS2 (ROCK 5C), so add our console if missing or root serial login fails.
   local st="${MOUNTPOINT_ROOT}/etc/securetty"
@@ -224,17 +223,6 @@ distro_configure_console() {
 }
 
 # ------------------------------ Services -------------------------------------
-_arch_enable_unit() {
-  local unit="$1" target="${2:-multi-user.target}"
-  local src="/usr/lib/systemd/system/${unit}"
-  if [[ -e "${MOUNTPOINT_ROOT}${src}" ]]; then
-    run_sudo mkdir -p "${MOUNTPOINT_ROOT}/etc/systemd/system/${target}.wants"
-    run_sudo ln -sf "${src}" "${MOUNTPOINT_ROOT}/etc/systemd/system/${target}.wants/${unit}"
-    return 0
-  fi
-  return 1
-}
-
 # sshd, systemd-networkd and systemd-timesyncd are already enabled in the ALARM
 # base, so the base set is a no-op here.
 distro_enable_base_services() { log "Base services (sshd/networkd/timesyncd) already enabled in ALARM base."; }
@@ -246,7 +234,7 @@ distro_enable_services() {
   IFS=' ' read -r -a list <<< "$1"     # global IFS has no space
   for svc in "${list[@]}"; do
     unit="${svc}.service"
-    if _arch_enable_unit "${unit}"; then
+    if systemd_enable_unit "${unit}"; then
       log "Enabled service: ${unit}"
     else
       ARCH_FIRSTBOOT_SERVICES+=" ${unit}"
@@ -257,45 +245,12 @@ distro_enable_services() {
 
 distro_install_oneshot() { :; }   # Arch routes one-shots through distro_finalize.
 
-# Adapt OpenRC /etc/local.d/*.start boot scripts (overlaid by a board's files/,
-# e.g. the M28K LED triggers) to systemd: one enabled oneshot unit each, so they
-# run on Arch too. Generic — any board's local.d boot scripts are picked up.
-distro_adapt_local_d() {
-  local d="${MOUNTPOINT_ROOT}/etc/local.d" f base name
-  [[ -d "${d}" ]] || return 0
-  shopt -s nullglob
-  for f in "${d}"/*.start; do
-    base="$(basename "${f}")"
-    name="localcompat-${base%.start}"
-    run_sudo tee "${MOUNTPOINT_ROOT}/usr/lib/systemd/system/${name}.service" >/dev/null <<EOF
-[Unit]
-Description=local.d compat: ${base}
-# No "After=multi-user.target": this unit is WantedBy that target, and ordering
-# a unit after the target that pulls it in is a systemd antipattern that can wedge
-# the boot job. local.d scripts are best-effort late boot tasks; default ordering
-# (alongside the target's wants) is correct.
-
-[Service]
-Type=oneshot
-ExecStart=/etc/local.d/${base}
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    _arch_enable_unit "${name}.service"
-    log "local.d → systemd oneshot: ${name}.service (${base})"
-  done
-  shopt -u nullglob
-}
+distro_adapt_local_d() { systemd_adapt_local_d; }
 
 distro_install_resize_service() {
   [[ "${AUTO_RESIZE}" == "1" ]] || { log "AUTO_RESIZE=0; skipping first-boot rootfs expansion."; return 0; }
-  # No package needed: the grow uses sfdisk (util-linux) + resize2fs (e2fsprogs),
-  # both in the ALARM base, in a dedicated EARLY oneshot (no network) — see
-  # distro_finalize. So the disk is full-size within seconds of boot.
-  ARCH_RESIZE_AT_FIRSTBOOT=1
-  log "First-boot rootfs auto-expand queued (early, sfdisk-based, no network)."
+  # No package needed: sfdisk (util-linux) + resize2fs (e2fsprogs) ship in the ALARM base.
+  systemd_install_rootfs_grow
 }
 
 # --------------------------- First-boot oneshots -----------------------------
@@ -303,58 +258,7 @@ distro_finalize() {
   run_sudo mkdir -p "${MOUNTPOINT_ROOT}/usr/local/sbin" \
     "${MOUNTPOINT_ROOT}/etc/systemd/system/multi-user.target.wants"
 
-  # --- 1) EARLY rootfs grow (no network; sfdisk + resize2fs from the base) ------
-  if [[ "${ARCH_RESIZE_AT_FIRSTBOOT}" == "1" ]]; then
-    section "Installing early first-boot rootfs grow oneshot (sfdisk, no network)"
-    run_sudo tee "${MOUNTPOINT_ROOT}/usr/local/sbin/grow-rootfs" >/dev/null <<'GROW'
-#!/bin/bash
-# Grow the root partition to fill the disk and online-resize ext4, then disable
-# itself. Uses sfdisk (util-linux) + resize2fs (e2fsprogs) — both in base, no net.
-set -u
-flag=/var/lib/misc/.rootfs-grown
-[ -f "$flag" ] && exit 0
-mkdir -p /var/lib/misc
-mm=$(awk '$5=="/"{print $3; exit}' /proc/self/mountinfo 2>/dev/null)
-[ -n "$mm" ] || exit 0
-sys=/sys/dev/block/$mm
-[ -f "$sys/partition" ] || exit 0
-partno=$(cat "$sys/partition")
-part=/dev/$(sed -n 's/^DEVNAME=//p' "$sys/uevent")
-disk=/dev/$(basename "$(dirname "$(readlink -f "$sys")")")
-[ -b "$part" ] && [ -b "$disk" ] && [ -n "$partno" ] || exit 0
-# Extend the last partition to the end of the disk (handles MBR + GPT; sfdisk
-# relocates the GPT backup header). partx -u updates the in-use partition size.
-echo ', +' | sfdisk -N "$partno" --no-reread --force "$disk" >/dev/null 2>&1 || true
-partx -u "$disk" >/dev/null 2>&1 || partprobe "$disk" >/dev/null 2>&1 || true
-resize2fs "$part" >/dev/null 2>&1 || true
-: > "$flag"
-logger -t grow-rootfs "rootfs ($part) grown to fill $disk" 2>/dev/null || true
-exit 0
-GROW
-    run_sudo chmod +x "${MOUNTPOINT_ROOT}/usr/local/sbin/grow-rootfs"
-    run_sudo tee "${MOUNTPOINT_ROOT}/usr/lib/systemd/system/firstboot-grow.service" >/dev/null <<'EOF'
-[Unit]
-Description=First-boot rootfs grow (sfdisk + resize2fs)
-DefaultDependencies=no
-After=systemd-remount-fs.service local-fs.target
-Before=sysinit.target shutdown.target
-Conflicts=shutdown.target
-ConditionPathExists=!/var/lib/misc/.rootfs-grown
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/grow-rootfs
-RemainAfterExit=yes
-
-[Install]
-WantedBy=sysinit.target
-EOF
-    run_sudo mkdir -p "${MOUNTPOINT_ROOT}/etc/systemd/system/sysinit.target.wants"
-    run_sudo ln -sf /usr/lib/systemd/system/firstboot-grow.service \
-      "${MOUNTPOINT_ROOT}/etc/systemd/system/sysinit.target.wants/firstboot-grow.service"
-  fi
-
-  # --- 2) NETWORK setup: keyring (fallback) + pacman extras + service enables ---
+  # Network setup: keyring (fallback) + pacman extras + service enables.
   section "Installing first-boot network setup oneshot (pacman extras + services)"
   local pkgs services purge
   pkgs="$(printf '%s' "${ARCH_FIRSTBOOT_PKGS}" | xargs -n1 2>/dev/null | sort -u | xargs)"
@@ -411,6 +315,6 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 EOF
-  _arch_enable_unit firstboot-setup.service
-  log "First-boot queued: grow=${ARCH_RESIZE_AT_FIRSTBOOT} (early) | net pkgs=[${pkgs:-none}] services=[${services:-none}]"
+  systemd_enable_unit firstboot-setup.service
+  log "First-boot queued: net pkgs=[${pkgs:-none}] services=[${services:-none}]"
 }

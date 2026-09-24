@@ -5,7 +5,7 @@
 **从主线源码，为多块 Rockchip / Allwinner 开发板构建开箱即用的整盘镜像。**
 
 Radxa E20C · Widora MangoPi M28K · Radxa ROCK 5C · Orange Pi Zero 3
-&nbsp;·&nbsp; Alpine / Arch Linux
+&nbsp;·&nbsp; Alpine / Arch Linux / Debian / eweOS
 
 </div>
 
@@ -18,8 +18,8 @@ Radxa E20C · Widora MangoPi M28K · Radxa ROCK 5C · Orange Pi Zero 3
 - **主线 U-Boot**（`OF_UPSTREAM`）— Rockchip 用 rkbin DDR/BL31；Allwinner H618 全程开源无闭源 blob
   （U-Boot SPL 初始化 DRAM + 上游 ATF 现编 BL31）。
 - **主线 Linux 稳定版**（标签固定在 [`config/versions.conf`](config/versions.conf)）— 内核选项是 `kconfig/*.fragment` 可组合片段，而非命令式补丁。
-- **三选一根文件系统** — `alpine`（apk + OpenRC，~170M）、`archlinux`（pacman + systemd，~660M）
-  或 `eweos`（musl + busybox + pacman + dinit，rolling）。
+- **四选一根文件系统** — `alpine`（apk + OpenRC，~170M）、`archlinux`（pacman + systemd，~660M）、
+  `debian`（最小化 trixie：apt + systemd + ifupdown）或 `eweos`（musl + busybox + pacman + dinit，rolling）。
 
 成品是可直接 `dd` 到 eMMC / SD 的整盘镜像，`xz -T0 -6` 压成
 **`<板>-<发行版>-<内核版本>.img.xz`**，首启自动扩容。
@@ -34,7 +34,7 @@ make rock5c                    # Radxa ROCK 5C（RK3582 默认开核 → 7 核 +
 make opiz3                     # Orange Pi Zero 3（Allwinner H618，全开源引导链）
 make all                       # 全部板子
 
-DISTRO=archlinux make rock5c   # 换发行版（alpine / archlinux / eweos）
+DISTRO=archlinux make rock5c   # 换发行版（alpine / archlinux / debian / eweos）
 make rock5c-dry                # 只解析配置、打印片段/钩子，不构建（秒级）
 ```
 
@@ -63,7 +63,7 @@ xz -dc out/<镜像>.img.xz | sudo dd of=/dev/sdX bs=4M conv=fsync iflag=fullbloc
 | [内核更新流程](docs/kernel-updates.md) | 集中版本配置、候选验证/编译、真机测试后更新默认值 |
 | [SWUpdate 测试镜像](docs/swupdate.md) | 上游 APK、签名验证、ROCK5C 首个测试目标及当前边界 |
 | [支持的板子](docs/boards.md) | 镜像命名、各板细节 |
-| [发行版](docs/distros.md) | alpine / archlinux / eweos 对照、各自专项处理 |
+| [发行版](docs/distros.md) | alpine / archlinux / debian / eweos 对照、各自专项处理 |
 | [RK3582 开核](docs/rk3582-unlock.md) | ft_system_setup 补丁原理、实测 7 核 |
 | [Allwinner H618](docs/allwinner.md) | 开源引导链、SPL/MBR/Panfrost |
 | [架构](docs/architecture.md) | 三个契约、目录结构、内核片段 |
