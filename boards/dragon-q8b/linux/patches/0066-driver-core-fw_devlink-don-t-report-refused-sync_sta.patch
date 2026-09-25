@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam <i@noc.cat>
+Date: Fri, 25 Sep 2026 09:10:21 +0000
+Subject: [PATCH 66/70] driver core: fw_devlink: don't report refused
+ sync_state()-only links
+
+When a supplier device appears after its consumer has bound,
+fw_devlink_create_devlink() asks for a sync_state()-only link, which
+device_link_add() refuses by design: such a link only holds the
+supplier's sync_state() back until the consumer probes, and that has
+already happened. The refusal is still reported as an error.
+
+On a Radxa Dragon Q8B the PMIC GLINK device binds early, and each USB
+controller, PHY and SBU mux that its connector nodes reference then
+logs one of these:
+
+  qcom_pmic_glink pmic-glink: Failed to create device link (0x180) with
+    supplier a600000.usb for /pmic-glink/connector@0
+
+Report that case at debug level and keep the error for real failures.
+---
+ drivers/base/core.c | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/base/core.c b/drivers/base/core.c
+index 4d02668..1ff8363 100644
+--- a/drivers/base/core.c
++++ b/drivers/base/core.c
+@@ -2237,8 +2237,18 @@ static int fw_devlink_create_devlink(struct device *con,
+ 		}
+ 
+ 		if (con != sup_dev && !device_link_add(con, sup_dev, flags)) {
+-			dev_err(con, "Failed to create device link (0x%x) with supplier %s for %pfwf\n",
+-				flags, dev_name(sup_dev), link->consumer);
++			/*
++			 * device_link_add() refuses a sync_state()-only link
++			 * once the consumer has probed: the link would only
++			 * have held the supplier's sync_state() back until then.
++			 */
++			if (flags & DL_FLAG_SYNC_STATE_ONLY &&
++			    con->links.status == DL_DEV_DRIVER_BOUND)
++				dev_dbg(con, "Not linking %s for %pfwf: consumer already bound\n",
++					dev_name(sup_dev), link->consumer);
++			else
++				dev_err(con, "Failed to create device link (0x%x) with supplier %s for %pfwf\n",
++					flags, dev_name(sup_dev), link->consumer);
+ 			ret = -EINVAL;
+ 		}
+ 

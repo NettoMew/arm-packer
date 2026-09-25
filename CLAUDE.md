@@ -34,7 +34,7 @@ work/  out/                          源码树工作区 / 成品
 - **board.conf**（纯赋值）必填：`BOARD_VENDOR BOARD_SOC BOARD_KERNEL_DTB BOARD_IMAGE_PREFIX
   BOARD_HOSTNAME BOARD_MENU_TITLE BOARD_SERIAL_CONSOLE` + 厂商要求的键（`vendor_required_keys`，
   U-Boot 厂商要 `BOARD_UBOOT_DEFCONFIG`）；选填 `BOARD_SERIAL_BAUD BOARD_KERNEL_CMDLINE_EXTRA
-  BOARD_SECOND_NIC BOARD_NICS BOARD_KERNEL_FRAGMENTS BOARD_BOOT_VARIANTS`（后者仅 UEFI：`名称=DTB`，多一条换 DTB 的启动项）。
+  BOARD_SECOND_NIC BOARD_NICS BOARD_KERNEL_FRAGMENTS`。
   可选 `firmware.lock`（按 commit + SHA-256 锁固件；`file`/`link`/`source`，URL 可用 `{path}` 占位）。
 - **vendor_\***（`lib/vendor/<vendor>.sh`）：`vendor_required_keys / _select_blobs / _default_fragments /
   _fetch_extra / _fetch_assert_skip / _assert_sources / _build_bootloader / _partition_table /
@@ -71,13 +71,16 @@ work/  out/                          源码树工作区 / 成品
   ④ 扩容是独立早期 `firstboot-grow.service`（sfdisk+resize2fs，无网），不依赖装 growpart。
 - 厂商差异：Rockchip = rkbin blob + `u-boot-rockchip.bin`@s64 + GPT；Allwinner = 现编 ATF BL31 +
   `u-boot-sunxi-with-spl.bin`@8KiB + MBR；Qualcomm = 板载 UEFI，不写任何引导扇区，GPT = 512M ESP +
-  根分区，systemd-boot 读 BLS 启动项（内核、dtb 都在 ESP）。
+  根分区，systemd-boot 读 BLS 启动项（内核、dtb 都在 ESP）。UEFI 固件每次开机都把 ESP 的 FAT 脏标记留着，
+  所以 vfat 分区在 fstab 里 fsck 序号为 2，引擎会装 dosfstools（`install_filesystem_tools`）。
 - **内核源码树每次构建都 `git clean`**（内核 O= 树外编译，安全）：板子补丁新增的文件不会残留到下一块板；
   U-Boot 树只 `checkout`，因为它树内编译、`SKIP_BUILD=1` 要复用产物。
-- **Dragon Q8B**：63 个补丁在 `boards/dragon-q8b/linux/patches`（来源与刷新记录见同目录 README）；
-  `DRM_MSM=y` 依赖 `QCOM_OCMEM` 不能是 m（片段里已处理）；BIOS 第三方兼容选项与 Hypervisor Override 须保持默认。
-  EL2 启动项 = 同一内核 + `-el2.dtb`（`radxa,enable-kvm` 让固件进 EL2，`qcom,broken-reset` 让 qebspil 预启动 DSP，
-  内核 attach）；qebspil 装在 ESP 的 `/EFI/systemd/drivers/`，DSP 固件复制到 ESP 的 `/firmware/`。默认仍是 EL1。
+- **Dragon Q8B**：70 个补丁在 `boards/dragon-q8b/linux/patches`（来源与刷新记录见同目录 README）。镜像只跑 EL2：
+  DTB 是 `-el2.dtb`（`radxa,enable-kvm` 让固件进 EL2，`qcom,broken-reset` 让 qebspil 预启动 DSP、内核 attach）；
+  qebspil 装在 ESP 的 `/EFI/systemd/drivers/`，DSP 固件复制到 ESP 的 `/firmware/`。BIOS 第三方兼容选项与
+  Hypervisor Override 须保持默认；`pd_ignore_unused` 不能去（否则 Wi-Fi 卡在 PCIe SMMU 上出故障）。
+  `DRM_MSM=m` 是有意的：内建会在根分区挂载前请求 GPU 固件而报错。组合 DTB（base + `.dtbo`）没有 `.dts`，
+  引擎按 Makefile 的 `-dtbs :=` 规则认它（`kernel_dtb_has_source`）。
 
 ## 验证手段
 - 改完先 `bash -n` 全部脚本 + 各板 `--dry-run`（看 vendor/SoC、分区表、片段列表与顺序、钩子、镜像名、IMAGE_SIZE）。

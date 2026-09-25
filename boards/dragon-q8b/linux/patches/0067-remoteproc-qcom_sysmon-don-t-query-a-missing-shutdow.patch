@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam <i@noc.cat>
+Date: Fri, 25 Sep 2026 09:10:21 +0000
+Subject: [PATCH 67/70] remoteproc: qcom_sysmon: don't query a missing
+ shutdown-ack interrupt
+
+The shutdown-ack interrupt is optional, and the SC8280XP CDSP has none.
+qcom_sysmon_shutdown_irq_state() asks the irqchip about it anyway. When
+the PAS driver attaches to a running CDSP, that fails with:
+
+  qcom_q6v5_pas 1b300000.remoteproc: failed to get shutdown_state: -22
+
+Without the interrupt the subsystem cannot have signalled a shutdown, so
+report false without asking.
+---
+ drivers/remoteproc/qcom_sysmon.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/remoteproc/qcom_sysmon.c b/drivers/remoteproc/qcom_sysmon.c
+index a0830a4..bab3474 100644
+--- a/drivers/remoteproc/qcom_sysmon.c
++++ b/drivers/remoteproc/qcom_sysmon.c
+@@ -741,7 +741,8 @@ bool qcom_sysmon_shutdown_irq_state(struct qcom_sysmon *sysmon)
+ 	bool shutdown_state;
+ 	int ret;
+ 
+-	if (!sysmon)
++	/* The shutdown-ack interrupt is optional; without it none was signalled */
++	if (!sysmon || sysmon->shutdown_irq <= 0)
+ 		return false;
+ 
+ 	ret = irq_get_irqchip_state(sysmon->shutdown_irq,

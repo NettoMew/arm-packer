@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam <i@noc.cat>
-Date: Fri, 25 Sep 2026 08:05:01 +0000
-Subject: [PATCH 62/63] arm64: dts: qcom: sc8280xp-radxa-dragon-q8b: add
+Date: Fri, 25 Sep 2026 09:10:21 +0000
+Subject: [PATCH 62/70] arm64: dts: qcom: sc8280xp-radxa-dragon-q8b: add
  stdout-path
 
 The board DTS names uart17 as serial0 but has no /chosen node, so a bare

@@ -30,21 +30,38 @@ v7.2.3) carried forward to v7.2.7:
     `direct_max`, both eMACs fail to probe with `-EINVAL`, and the board has
     no wired network. Kernels that zero the stack automatically hide the bug.
   - 0061 lets the PAS remoteproc driver attach to a DSP the boot firmware
-    already started (qebspil, for the EL2 entry), found through its SMP2P
+    already started (qebspil, at EL2), found through its SMP2P
     state. It is Radxa's
     [`7bf1919dfc5e`](https://github.com/radxa/kernel/commit/7bf1919dfc5e873808f48231156aa12b64d926cc)
     from their 7.0 tree, author kept. v7.2.7's `qcom_pas_attach()` already
     checks the fatal, stop and ready states itself, so only the probe-time
     detection and the load and shutdown guards are carried. A DSP that is not
     running has published no SMP2P entry (`-ENODEV`); that now counts as "not
-    preloaded" without a warning on every EL1 boot.
+    preloaded" without a warning.
   - 0062 gives the board DTS a `/chosen/stdout-path`, so a bare `earlycon`
     finds the header UART.
-  - 0063 builds `sc8280xp-radxa-dragon-q8b-el2.dtb`: the board DTB plus
-    `/chosen/radxa,enable-kvm`, which tells the firmware to start the OS at
-    EL2, and `qcom,broken-reset` on the ADSP and CDSP for qebspil. Iris is
-    disabled there: it cannot load its firmware at EL2 (as on X1, whose EL2
-    overlay does the same).
+  - 0063 builds `sc8280xp-radxa-dragon-q8b-el2.dtb`, the DTB the image
+    boots: the board DTB plus `/chosen/radxa,enable-kvm`, which tells the
+    firmware to start the OS at EL2, `qcom,broken-reset` on the ADSP and CDSP
+    for qebspil, and the EL2 virtual timer interrupt (PPI 12) VHE wants. Iris
+    is disabled there: it cannot load its firmware at EL2 (as on X1, whose
+    EL2 overlay does the same).
+  - 0064 and 0065 are Stephan Gerhold's `qcom,shm-bridge-vmid` binding and
+    the tzmem "self owner" SHM bridge, from radxa/kernel
+    [`fe0fca8ddbca`](https://github.com/radxa/kernel/commit/fe0fca8ddbca28ee77ce0a3ea63eb9a2a4029539) and
+    [`88531b99bb52`](https://github.com/radxa/kernel/commit/88531b99bb52195cd3e4af1ed5aefccb3e9c27e5).
+    At EL2 the firmware sets `qcom,shm-bridge-vmid` to "self owner" in the
+    SCM node; without these, QTEE calls fail there with `-EINVAL`.
+  - 0066 to 0069 silence log errors that are not errors: fw_devlink reporting
+    sync_state()-only links it refuses by design (PMIC GLINK connectors),
+    sysmon asking about the CDSP's shutdown-ack interrupt, which does not
+    exist, q6apm treating the DSP's silence before its audio framework is up
+    as a failed command, and the ACPI core warning when drivers such as
+    iwlwifi and btintel ask for a `_DSM` on a device tree system (fixed in
+    the core, so every such driver benefits).
+  - 0070 is mainline's "drm/msm: mark the fbdev framebuffer as system
+    memory" (`ea9dadeac79c`), backported. It stops the fbdev console's
+    "framebuffer is not in virtual address space" warnings.
 
 To refresh the series for another kernel, apply it with `git am` on a worktree
 of the new tag, resolve, and export again with
@@ -115,3 +132,7 @@ of the new tag, resolve, and export again with
 | 0061 | (not in Armbian; radxa/kernel `7bf1919dfc5e`) |
 | 0062 | (not in Armbian; added here) |
 | 0063 | (not in Armbian; added here) |
+| 0064 | (not in Armbian; radxa/kernel `fe0fca8ddbca`) |
+| 0065 | (not in Armbian; radxa/kernel `88531b99bb52`) |
+| 0066–0069 | (not in Armbian; added here) |
+| 0070 | (not in Armbian; mainline `ea9dadeac79c`) |

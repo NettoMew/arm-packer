@@ -22,3 +22,8 @@ CONFIG_SND_SOC_WSA883X=m
 
 # Battery-backed RTC (st,m41t11 on i2c12).
 CONFIG_RTC_DRV_M41T80=y
+
+# No QTEE driver: this firmware's QTEE answers no object invocation (at EL1 the
+# version query comes back 0.0.0, at EL2 the call fails with -EINVAL), and
+# nothing in the image talks to it.
+# CONFIG_QCOMTEE is not set

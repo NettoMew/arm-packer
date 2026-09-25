@@ -18,10 +18,11 @@
   _env_summary`。启动方式由厂商 source 的 `lib/boot/*.sh` 提供：
   - `lib/boot/uboot.sh`：U-Boot 取源/构建，内核与 dtb 放 `/boot`，写 `extlinux.conf`（rockchip、allwinner）。
   - `lib/boot/uefi.sh`：板载 UEFI，systemd-boot（Debian 包锁版本与 SHA-256）装进 ESP，
-    内核与 dtb 放 ESP，写 BLS 启动项（qcom）。`BOARD_BOOT_VARIANTS="名称=DTB …"` 为每个变体多写一条
-    启动项（同内核、同命令行、换 DTB），默认项仍是普通那条。
+    内核与 dtb 放 ESP，写一条 BLS 启动项，`loader.conf` 精确指定它为默认（qcom）。
   - `vendor_partition_layout` 每行一个分区 `名称 大小 文件系统 挂载点`，`rest` 取剩余；
-    `IMAGE_SIZE` 只算根分区，ESP 等另加。
+    `IMAGE_SIZE` 只算根分区，ESP 等另加。vfat 分区在 fstab 里 fsck 序号为 2（固件留下的 FAT 脏标记
+    由 fsck 清掉），引擎为此装 dosfstools。
+  - `BOARD_KERNEL_DTB` 可以是组合 DTB（基础 `.dtb` + `.dtbo`，由 dts 目录 Makefile 的 `-dtbs :=` 规则生成）。
 - **distro_\***（`lib/distro/<distro>.sh`，用户态）：`distro_prepare / _bootstrap_rootfs /
   _install_pkgs / _write_repos / _configure_time / _configure_network / _add_wifi_iface /
   _configure_console / _enable_base_services / _enable_services / _install_oneshot /

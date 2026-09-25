@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam <i@noc.cat>
+Date: Fri, 25 Sep 2026 09:10:21 +0000
+Subject: [PATCH 69/70] ACPI: utils: return early from acpi_evaluate_dsm()
+ without a handle
+
+Drivers for devices that exist on both ACPI and device tree systems
+query _DSM on ACPI_HANDLE(dev), which is NULL on a device tree system.
+ACPICA then fails with AE_BAD_PARAMETER, and acpi_evaluate_dsm() warns
+about it. An Intel Wi-Fi card on a device tree board logs, for example:
+
+  ACPI: <n/a>: failed to evaluate _DSM 2c176672-0b22-294b-814f-75e4dd26b5fd
+    rev:0 func:0 (0x1001)
+
+A device without an ACPI companion has no _DSM to evaluate. Return NULL
+for it, as for a missing method, which every caller already handles.
+---
+ drivers/acpi/utils.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/acpi/utils.c b/drivers/acpi/utils.c
+index 6ab27e4..90b2b99 100644
+--- a/drivers/acpi/utils.c
++++ b/drivers/acpi/utils.c
+@@ -779,6 +779,10 @@ acpi_evaluate_dsm(acpi_handle handle, const guid_t *guid, u64 rev, u64 func,
+ 		.pointer = params,
+ 	};
+ 
++	/* A device without an ACPI companion, as on device tree systems */
++	if (!handle)
++		return NULL;
++
+ 	params[0].type = ACPI_TYPE_BUFFER;
+ 	params[0].buffer.length = 16;
+ 	params[0].buffer.pointer = (u8 *)guid;

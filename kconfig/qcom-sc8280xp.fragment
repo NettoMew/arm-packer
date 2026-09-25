@@ -89,13 +89,11 @@ CONFIG_TYPEC_MUX_GPIO_SBU=y
 CONFIG_TYPEC_DP_ALTMODE=m
 CONFIG_BATTERY_QCOM_BATTMGR=m
 
-# Display (DPU + DP/eDP PHY) built in for an early console; the Adreno 690
-# fetches its firmware from the rootfs on first use.
-CONFIG_DRM_MSM=y
-# DRM_MSM depends on "QCOM_OCMEM || QCOM_OCMEM=n": the distro base builds OCMEM (an
-# older Snapdragon on-chip memory, unused here) as a module, which would cap
-# DRM_MSM at =m. Building the small driver in lifts the cap.
-CONFIG_QCOM_OCMEM=y
+# Display (DPU + DP/eDP PHY) and the Adreno 690 GPU. A module on purpose: udev
+# loads it once the rootfs is mounted, so the GPU finds its firmware on the first
+# try (built in, it asks before the rootfs is there and logs an error). The
+# firmware's EFI framebuffer holds the console until then.
+CONFIG_DRM_MSM=m
 CONFIG_PHY_QCOM_EDP=y
 CONFIG_DRM_DISPLAY_DP_AUX_CEC=y
 

@@ -5,9 +5,9 @@
 # CH7218A HDMI bridge and a set of display, PCI and thermal fixes come as one
 # patch series, taken from Armbian's tested sc8280xp-edge series and refreshed
 # for this kernel (see linux/README.md for provenance). The series also builds
-# an EL2 DTB, booted by its own loader entry (BOARD_BOOT_VARIANTS); qebspil
-# starts the DSPs for that entry (lib/qebspil.sh). The M.2 Wi-Fi card uses the
-# in-tree iwlwifi driver and the shared Wi-Fi userspace (lib/wifi.sh).
+# the EL2 DTB the image boots; qebspil starts the DSPs before the kernel does
+# (lib/qebspil.sh). The M.2 Wi-Fi card uses the in-tree iwlwifi driver and the
+# shared Wi-Fi userspace (lib/wifi.sh).
 
 # Both read by lib/qebspil.sh.
 # shellcheck disable=SC2034

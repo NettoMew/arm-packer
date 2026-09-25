@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam <i@noc.cat>
-Date: Fri, 25 Sep 2026 08:05:01 +0000
-Subject: [PATCH 63/63] arm64: dts: qcom: sc8280xp-radxa-dragon-q8b: add an EL2
+Date: Fri, 25 Sep 2026 09:10:21 +0000
+Subject: [PATCH 63/70] arm64: dts: qcom: sc8280xp-radxa-dragon-q8b: add an EL2
  variant
 
 The Dragon Q8B firmware decides between EL1 and EL2 from the device tree
@@ -17,12 +17,17 @@ ExitBootServices(), and Linux attaches to them.
 Iris cannot load its firmware at EL2 either (the PAS call fails with
 -EINVAL), so it is disabled there, as the X1 EL2 overlay does.
 
+The SoC timer node lists only the four EL1 timer interrupts. At EL2 the
+kernel runs with VHE and wants the EL2 virtual timer as well, and warns
+"VHE-capable CPU without EL2 virtual timer interrupt" without it. Add
+the architected PPI 12.
+
 Build the result as sc8280xp-radxa-dragon-q8b-el2.dtb next to the
 regular board DTB, the same way as the ThinkPad X13s EL2 variant.
 ---
  arch/arm64/boot/dts/qcom/Makefile             |  3 +-
- .../qcom/sc8280xp-radxa-dragon-q8b-el2.dtso   | 34 +++++++++++++++++++
- 2 files changed, 36 insertions(+), 1 deletion(-)
+ .../qcom/sc8280xp-radxa-dragon-q8b-el2.dtso   | 46 +++++++++++++++++++
+ 2 files changed, 48 insertions(+), 1 deletion(-)
  create mode 100644 arch/arm64/boot/dts/qcom/sc8280xp-radxa-dragon-q8b-el2.dtso
 
 diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
@@ -41,10 +46,10 @@ index c4f2d61..d9ac034 100644
  dtb-$(CONFIG_ARCH_QCOM)	+= sdm450-motorola-ali.dtb
 diff --git a/arch/arm64/boot/dts/qcom/sc8280xp-radxa-dragon-q8b-el2.dtso b/arch/arm64/boot/dts/qcom/sc8280xp-radxa-dragon-q8b-el2.dtso
 new file mode 100644
-index 0000000..1e9a66f
+index 0000000..d406a6f
 --- /dev/null
 +++ b/arch/arm64/boot/dts/qcom/sc8280xp-radxa-dragon-q8b-el2.dtso
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,46 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +/*
 + * Radxa Dragon Q8B at EL2.
@@ -52,7 +57,7 @@ index 0000000..1e9a66f
 + * With /chosen/radxa,enable-kvm present and the "Hypervisor Override" setup
 + * option left at Auto, the board firmware starts the operating system at EL2
 + * instead of under its hypervisor, and applies the EL2 device tree changes
-+ * (PCIe SMMU, GPU zap shader) itself.
++ * (PCIe SMMU, GPU zap shader, SHM bridge owner) itself.
 + *
 + * At EL2 Linux cannot start the DSPs through the PAS interface. The qebspil
 + * UEFI driver starts every remoteproc marked qcom,broken-reset just before
@@ -63,8 +68,20 @@ index 0000000..1e9a66f
 +/dts-v1/;
 +/plugin/;
 +
++#include <dt-bindings/interrupt-controller/arm-gic.h>
++
 +&{/chosen} {
 +	radxa,enable-kvm = <1>;
++};
++
++/* The EL2 virtual timer, which VHE uses, next to the four EL1 ones. */
++&{/timer} {
++	interrupt-parent = <&intc>;
++	interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL_LOW>,
++		     <GIC_PPI 14 IRQ_TYPE_LEVEL_LOW>,
++		     <GIC_PPI 11 IRQ_TYPE_LEVEL_LOW>,
++		     <GIC_PPI 10 IRQ_TYPE_LEVEL_LOW>,
++		     <GIC_PPI 12 IRQ_TYPE_LEVEL_LOW>;
 +};
 +
 +&iris {

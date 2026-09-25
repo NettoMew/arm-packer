@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam <i@noc.cat>
+Date: Fri, 25 Sep 2026 09:10:21 +0000
+Subject: [PATCH 68/70] ASoC: qcom: q6apm: don't report an unanswered SPF state
+ query
+
+The DSP answers APM_CMD_GET_SPF_STATE only once its signal processing
+framework is up. Until then the query goes unanswered, and
+q6apm_send_cmd_sync() reports the timeout as an error:
+
+  qcom-apm gprsvc:service:2:1: CMD timeout for [1001021] opcode
+
+That is not an error. No answer means "not ready yet", which
+q6apm_is_adsp_ready() reports and q6prm handles by deferring its probe.
+Send the query and wait for the answer directly, without the error.
+---
+ sound/soc/qcom/qdsp6/q6apm.c | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/sound/soc/qcom/qdsp6/q6apm.c b/sound/soc/qcom/qdsp6/q6apm.c
+index f167b9d..5824455 100644
+--- a/sound/soc/qcom/qdsp6/q6apm.c
++++ b/sound/soc/qcom/qdsp6/q6apm.c
+@@ -147,7 +147,19 @@ static int q6apm_get_apm_state(struct q6apm *apm)
+ 	if (IS_ERR(pkt))
+ 		return PTR_ERR(pkt);
+ 
+-	q6apm_send_cmd_sync(apm, pkt, APM_CMD_RSP_GET_SPF_STATE);
++	/*
++	 * The DSP answers only once its signal processing framework is up. No
++	 * answer means "not ready yet", which the callers poll for, so wait for
++	 * it here without the error q6apm_send_cmd_sync() reports on a timeout.
++	 */
++	mutex_lock(&apm->lock);
++	apm->state = 0;
++	apm->result.opcode = 0;
++	if (gpr_send_pkt(apm->gdev, pkt) >= 0)
++		wait_event_timeout(apm->wait,
++				   apm->result.opcode == APM_CMD_RSP_GET_SPF_STATE,
++				   5 * HZ);
++	mutex_unlock(&apm->lock);
+ 
+ 	return apm->state;
+ }
