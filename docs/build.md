@@ -88,7 +88,12 @@ BTF 生成也会随 `JOBS` 并行，内存不足时不能只看 C 编译是否�
 | `DEBIAN_EXTRA_PACKAGES` | 空 | 仅 `debian`：在基础系统之外追加的包（空格分隔），如 `curl htop` |
 | `DEBIAN_MASKED_UNITS` | apt/dpkg/e2scrub 周期任务 | 仅 `debian`：屏蔽的 systemd 单元（`fstrim.timer` 保留） |
 | `IMAGE_SIZE` | alpine `1G` / arch `4G` / debian `2G` / eweos `2G` | 根文件系统大小（稀疏 + 首启扩容）；ESP 等其他分区另加 |
-| `ROOTFS_EXT4_FEATURES` | `^metadata_csum,^metadata_csum_seed,^orphan_file,^64bit` | 传给 `mkfs.ext4 -O` 的根分区特性；默认保守 ext4，避免 U-Boot 能读 `extlinux.conf` 却加载 `/boot/Image` 失败 |
+| `ROOTFS_TYPE` | 板级 `BOARD_ROOTFS_TYPE`，否则 `ext4` | 根文件系统插件 `lib/fs/<type>.sh`：`ext4`，或 `zfs`（仅 UEFI 厂商 + `debian`；dragon-q8b 默认） |
+| `ZFS_POOL` | `rpool` | 仅 zfs：池名；根数据集为 `<池>/ROOT/<distro>` |
+| `ZFS_POOL_COMPATIBILITY` | `openzfs-2.2-linux` | 仅 zfs：建池时限定的特性集，构建机比镜像新也不会启用镜像模块不认识的特性；板上 `zpool set compatibility=off` 后可 `zpool upgrade` |
+| `ZFS_POOL_PROPERTIES` | `ashift=12 autotrim=on` | 仅 zfs：`zpool create -o` 的池属性 |
+| `ZFS_DATASET_PROPERTIES` | `compression=zstd atime=off xattr=sa acltype=posixacl dnodesize=auto` | 仅 zfs：`zpool create -O` 的数据集属性，所有数据集继承（池根数据集固定 `mountpoint=none canmount=off`，新数据集要自己指定挂载点） |
+| `ROOTFS_EXT4_FEATURES` | `^metadata_csum,^metadata_csum_seed,^orphan_file,^64bit` | 仅 ext4：传给 `mkfs.ext4 -O` 的根分区特性；默认保守 ext4，避免 U-Boot 能读 `extlinux.conf` 却加载 `/boot/Image` 失败 |
 | `COMPRESS_IMAGE` | `1` | `1`=构建后 `xz -T0 -6` 打包，完整性检查通过才发布 `.img.xz` 并删除原始 `.img` |
 | `INSTALL_DEPS` | `1` | `0`=只检查依赖、缺失就报错，不自动装 |
 | `ROOT_PASSWORD` | `120102` | root 密码（SHA-512 写入 `/etc/shadow`）；置空则免密码（仅串口） |

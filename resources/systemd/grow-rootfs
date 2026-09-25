@@ -1,23 +1,38 @@
 #!/bin/bash
-# Grow the root partition to fill the disk and online-resize ext4, then disable
-# itself. Uses sfdisk (util-linux) + resize2fs (e2fsprogs) — both in base, no net.
+# Grow the root partition to fill the disk, then what lives on it (ext4 online
+# resize, or the ZFS pool's device), then disable itself. Uses sfdisk + partx
+# (util-linux) and resize2fs (e2fsprogs) or zpool: all in base, no network.
 set -u
 flag=/var/lib/misc/.rootfs-grown
 [ -f "$flag" ] && exit 0
 mkdir -p /var/lib/misc
-mm=$(awk '$5=="/"{print $3; exit}' /proc/self/mountinfo 2>/dev/null)
-[ -n "$mm" ] || exit 0
-sys=/sys/dev/block/$mm
+read -r src fstype < <(findmnt -no SOURCE,FSTYPE /)
+if [ "$fstype" = zfs ]; then
+  # The pool's only device, by its kernel name (the dataset is pool/...).
+  pool=${src%%/*}
+  part=$(zpool list -vHPL "$pool" 2>/dev/null | awk -F '\t' '$2 ~ /^\/dev\// { print $2; exit }')
+  [ -b "$part" ] || exit 0
+  sys=/sys/class/block/${part#/dev/}
+else
+  # The root's device number: ext4 without an initramfs shows /dev/root.
+  mm=$(awk '$5=="/"{print $3; exit}' /proc/self/mountinfo 2>/dev/null)
+  [ -n "$mm" ] || exit 0
+  sys=/sys/dev/block/$mm
+  part=/dev/$(sed -n 's/^DEVNAME=//p' "$sys/uevent")
+fi
 [ -f "$sys/partition" ] || exit 0
 partno=$(cat "$sys/partition")
-part=/dev/$(sed -n 's/^DEVNAME=//p' "$sys/uevent")
 disk=/dev/$(basename "$(dirname "$(readlink -f "$sys")")")
 [ -b "$part" ] && [ -b "$disk" ] && [ -n "$partno" ] || exit 0
 # Extend the last partition to the end of the disk (handles MBR + GPT; sfdisk
 # relocates the GPT backup header). partx -u updates the in-use partition size.
 echo ', +' | sfdisk -N "$partno" --no-reread --force "$disk" >/dev/null 2>&1 || true
 partx -u "$disk" >/dev/null 2>&1 || partprobe "$disk" >/dev/null 2>&1 || true
-resize2fs "$part" >/dev/null 2>&1 || true
+if [ "$fstype" = zfs ]; then
+  zpool online -e "$pool" "$part" >/dev/null 2>&1 || true
+else
+  resize2fs "$part" >/dev/null 2>&1 || true
+fi
 : > "$flag"
 logger -t grow-rootfs "rootfs ($part) grown to fill $disk" 2>/dev/null || true
 exit 0

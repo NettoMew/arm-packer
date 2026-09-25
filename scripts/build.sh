@@ -5,9 +5,9 @@
 # Pipeline: parse flags → load board config → source vendor plugin + board hooks
 # → derive paths → run the build pipeline. Per-board knowledge lives in
 # boards/<board>/board.conf (+ optional hooks.sh); vendor boot-chain differences
-# in lib/vendor/<vendor>.sh (+ the lib/boot/*.sh scheme it uses); kernel options
-# in kconfig/*.fragment. The engine itself (lib/*.sh) has no board/vendor
-# conditionals.
+# in lib/vendor/<vendor>.sh (+ the lib/boot/*.sh scheme it uses); the root
+# filesystem in lib/fs/<type>.sh; kernel options in kconfig/*.fragment. The
+# engine itself (lib/*.sh) has no board/vendor conditionals.
 #
 # Usage:
 #   BOARD=opiz3 scripts/build.sh                 # build (default BOARD=e20c)
@@ -118,6 +118,13 @@ DISTRO_LIB="${LIB_DIR}/distro/${DISTRO}.sh"
 # shellcheck source=/dev/null
 source "${DISTRO_LIB}"
 
+# Root filesystem plugin (format, mount, initramfs, command line, fstab).
+FS_LIB="${LIB_DIR}/fs/${ROOTFS_TYPE}.sh"
+[[ -f "${FS_LIB}" ]] || fatal "Unknown ROOTFS_TYPE=${ROOTFS_TYPE} (no ${FS_LIB}; have: $(cd "${LIB_DIR}/fs" && echo *.sh | sed 's/\.sh//g'))"
+# shellcheck source=/dev/null
+source "${FS_LIB}"
+fs_check_config
+
 # Optional per-board hooks (source injection, AIC8800, OLED, …).
 [[ -f "${BOARD_ASSETS}/${BOARD}/hooks.sh" ]] && { # shellcheck source=/dev/null
   source "${BOARD_ASSETS}/${BOARD}/hooks.sh"; }
@@ -148,6 +155,7 @@ if [[ "${DRY_RUN}" == "1" ]]; then
   log "vendor/soc: ${BOARD_VENDOR}/${BOARD_SOC}"
   distro_env_summary
   vendor_env_summary
+  fs_env_summary
   log "kernel source: ${KERNEL_REPO} @ ${KERNEL_REF}"
   if [[ -n "${KERNEL_ACTION}" ]]; then
     kernel_require_release_tag "${KERNEL_REF}"

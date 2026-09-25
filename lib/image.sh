@@ -5,7 +5,10 @@
 # The vendor declares the partitions (vendor_partition_layout), one per line:
 #   NAME SIZE FSTYPE MOUNTPOINT
 # SIZE is an IEC size (512M) or "rest" for the remainder; exactly one partition
-# mounts at "/" and at most one takes "rest", and it comes last. IMAGE_SIZE is the
+# mounts at "/" and at most one takes "rest", and it comes last. The root row's
+# FSTYPE is the image's ROOTFS_TYPE, whose plugin (lib/fs/*.sh) formats, mounts
+# and releases that partition; a boot chain that reads the kernel from the root
+# filesystem names the one type it can read there instead. IMAGE_SIZE is the
 # root filesystem's budget: every sized partition grows the image by its own size,
 # so a board with an ESP gets the same root space as one without.
 #
@@ -25,6 +28,8 @@ load_partition_layout() {
     [[ "${name}" == esp ]] && ESP_MOUNT="${mnt}"
   done < <(vendor_partition_layout)
   [[ -n "${ROOT_PART}" ]] || fatal "Partition layout has no root (/) partition."
+  [[ "${PART_FS[ROOT_PART - 1]}" == "${ROOTFS_TYPE}" ]] \
+    || fatal "BOARD_VENDOR=${BOARD_VENDOR} loads the kernel from its ${PART_FS[ROOT_PART - 1]} root filesystem; ROOTFS_TYPE=${ROOTFS_TYPE} needs a boot chain that loads it from an ESP."
 }
 
 # One line per partition, for the dry run and the build log.
@@ -129,25 +134,23 @@ format_partitions() {
   local i part
   for i in "${!PART_NAMES[@]}"; do
     part="${LOOPDEV}p$((i + 1))"
+    if (( i + 1 == ROOT_PART )); then
+      fs_format "${part}"
+      continue
+    fi
     case "${PART_FS[i]}" in
-      ext4)
-        local -a mkfs_features=()
-        [[ -z "${ROOTFS_EXT4_FEATURES:-}" ]] || mkfs_features=(-O "${ROOTFS_EXT4_FEATURES}")
-        log "mkfs.ext4 ${part} label=${ROOTFS_LABEL}${ROOTFS_EXT4_FEATURES:+ features=${ROOTFS_EXT4_FEATURES}}"
-        run_sudo mkfs.ext4 -F -L "${ROOTFS_LABEL}" "${mkfs_features[@]}" "${part}" ;;
-      vfat)
-        run_sudo mkfs.vfat -F 32 -n "${PART_NAMES[i]^^}" "${part}" ;;
-      *) fatal "Unsupported filesystem in partition layout: ${PART_FS[i]}" ;;
+      vfat) run_sudo mkfs.vfat -F 32 -n "${PART_NAMES[i]^^}" "${part}" ;;
+      *) fatal "Unsupported filesystem for partition ${PART_NAMES[i]}: ${PART_FS[i]}" ;;
     esac
   done
   read_root_partuuid
 }
 
 mount_root_partition() {
-  section "Mounting root partition"
+  section "Mounting root filesystem (${ROOTFS_TYPE})"
   MOUNTPOINT_ROOT="${WORKSPACE}/mnt-root"
   mkdir -p "${MOUNTPOINT_ROOT}"
-  run_sudo mount "${LOOPDEV}p${ROOT_PART}" "${MOUNTPOINT_ROOT}"
+  fs_mount "${LOOPDEV}p${ROOT_PART}"
 }
 
 # The other partitions mount once the distro has laid down the rootfs: some
@@ -184,6 +187,7 @@ finalize_image() {
       run_sudo umount "${MOUNTPOINT_ROOT}" || fatal "Root partition still busy after retry: ${MOUNTPOINT_ROOT}"
     fi
   fi
+  fs_release
   if [[ -n "${LOOPDEV}" ]]; then
     run_sudo losetup -d "${LOOPDEV}"
     LOOPDEV=""

@@ -15,10 +15,15 @@ for conf in boards/*/board.conf; do
   board="${conf#boards/}"; board="${board%/board.conf}"
   for plugin in lib/distro/*.sh; do
     distro="${plugin##*/}"; distro="${distro%.sh}"
-    output="$(env -u KERNEL_REPO -u KERNEL_REF BOARD="${board}" DISTRO="${distro}" \
-      bash scripts/build.sh --dry-run 2>&1)"
-    grep -Fq "kernel source: ${repo} @ ${ref}" <<< "${output}"
-    printf 'PASS defaults: %s / %s\n' "${board}" "${distro}"
+    if output="$(env -u KERNEL_REPO -u KERNEL_REF BOARD="${board}" DISTRO="${distro}" \
+      bash scripts/build.sh --dry-run 2>&1)"; then
+      grep -Fq "kernel source: ${repo} @ ${ref}" <<< "${output}"
+      printf 'PASS defaults: %s / %s\n' "${board}" "${distro}"
+    else
+      # A board whose root is ZFS refuses the distros that cannot boot it.
+      grep -Fq "DISTRO=${distro} cannot boot a ZFS root" <<< "${output}"
+      printf 'PASS refused: %s / %s (ZFS root)\n' "${board}" "${distro}"
+    fi
   done
 done
 

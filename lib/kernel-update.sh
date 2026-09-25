@@ -51,6 +51,7 @@ kernel_validation_steps() {
     run make -C "${KERNEL_SRC_DIR}" O="${KERNEL_BUILD_DIR}" ARCH=arm64 \
       CROSS_COMPILE=aarch64-linux-gnu- "${KERNEL_DTB}"
   else
+    fs_build_modules
     board_hook build_modules
   fi
   dtb="${KERNEL_BUILD_DIR}/arch/arm64/boot/dts/${KERNEL_DTB}"

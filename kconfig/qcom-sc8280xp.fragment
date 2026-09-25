@@ -2,9 +2,10 @@
 # Merged after the distro base by lib/kernel.sh (vendor_default_fragments in
 # lib/vendor/qcom.sh). The distro base already builds most of the boot path in;
 # this fragment states that path explicitly and moves the few remaining pieces
-# from modules to built-ins. There is no initramfs, so everything between power-on
-# and a mounted root (clocks, interconnect, PMIC, storage, PCIe, serial) must be
-# =y; drivers that load firmware from the rootfs stay modules.
+# from modules to built-ins. The kernel reaches the root disk on its own (an
+# initramfs, where there is one, only imports a ZFS pool), so everything between
+# power-on and the root disk (clocks, interconnect, PMIC, storage, PCIe, serial)
+# must be =y; drivers that load firmware from the rootfs stay modules.
 # Values follow Armbian's tested sc8280xp-edge configuration.
 
 # Clocks, power domains, interconnect, pinctrl.

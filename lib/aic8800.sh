@@ -71,8 +71,7 @@ aic8800_build() {
 aic8800_install() {
   section "Installing AIC8800 modules + firmware into rootfs (${AIC8800_BUS})"
   local drv="${AIC8800_DIR}/${AIC8800_DRV_SUBDIR}"
-  local krel; krel="$(make -s -C "${KERNEL_BUILD_DIR}" kernelrelease)"
-  [[ -n "${krel}" ]] || fatal "Could not resolve kernel release for module install."
+  local krel; krel="$(kernel_release)"
 
   # Out-of-tree modules into the rootfs module tree, then depmod.
   if [[ "${AIC8800_BUS}" == "sdio" ]]; then

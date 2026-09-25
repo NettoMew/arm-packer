@@ -34,8 +34,8 @@ systemd_enable_serial_getty() {
     || fatal "serial-getty@.service is not installed in the rootfs."
 }
 
-# Early first-boot rootfs grow (sfdisk + partx + resize2fs, no network): the disk
-# is full-size within seconds of the first boot.
+# Early first-boot rootfs grow (sfdisk + partx, then resize2fs or zpool online
+# -e; no network): the disk is full-size within seconds of the first boot.
 systemd_install_rootfs_grow() {
   run_sudo install -D -m 0755 "${RESOURCES_DIR}/systemd/grow-rootfs" \
     "${MOUNTPOINT_ROOT}/usr/local/sbin/grow-rootfs"

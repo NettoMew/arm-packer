@@ -105,6 +105,14 @@ build_kernel() {
   [[ -f "${KERNEL_BUILD_DIR}/arch/arm64/boot/dts/${KERNEL_DTB}" ]] || fatal "Kernel DTB not generated: ${KERNEL_DTB}"
 }
 
+# The release string of the built kernel (its /lib/modules directory name).
+kernel_release() {
+  local krel
+  krel="$(make -s -C "${KERNEL_BUILD_DIR}" kernelrelease)"
+  [[ -n "${krel}" ]] || fatal "Could not resolve the kernel release from ${KERNEL_BUILD_DIR}."
+  printf '%s\n' "${krel}"
+}
+
 install_kernel_modules() {
   section "Installing kernel modules into rootfs"
   # INSTALL_MOD_STRIP=1: the distro-grade config builds thousands of modules and

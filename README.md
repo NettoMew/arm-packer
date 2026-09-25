@@ -56,7 +56,7 @@ xz -dc out/<镜像>.img.xz | sudo dd of=/dev/sdX bs=4M conv=fsync iflag=fullbloc
 | `m28k` | Widora MangoPi M28K | RK3528 | AIC8800 Wi-Fi6/BT，OLED 仪表盘 |
 | `rock5c` | Radxa ROCK 5C | RK3588S2 / RK3582 | RK3582 开核 → 7 核 + Mali-G610，NVMe，AIC8800 USB Wi-Fi |
 | `opiz3` | Orange Pi Zero 3 | Allwinner H618 | 全程开源无闭源 blob，Mali-G31 |
-| `dragon-q8b` | Radxa Dragon Q8B | Qualcomm SC8280XP | 板载 UEFI + systemd-boot，EL2 + KVM，双 2.5GbE，NVMe，Adreno 690 |
+| `dragon-q8b` | Radxa Dragon Q8B | Qualcomm SC8280XP | 板载 UEFI + systemd-boot，ZFS 根，EL2 + KVM，双 2.5GbE，NVMe，Adreno 690 |
 
 ## 文档
 
@@ -69,6 +69,6 @@ xz -dc out/<镜像>.img.xz | sudo dd of=/dev/sdX bs=4M conv=fsync iflag=fullbloc
 | [发行版](docs/distros.md) | alpine / archlinux / debian / eweos 对照、各自专项处理 |
 | [RK3582 开核](docs/rk3582-unlock.md) | ft_system_setup 补丁原理、实测 7 核 |
 | [Allwinner H618](docs/allwinner.md) | 开源引导链、SPL/MBR/Panfrost |
-| [架构](docs/architecture.md) | 三个契约、目录结构、内核片段 |
+| [架构](docs/architecture.md) | 插件契约、目录结构、内核片段 |
 | [进度与限制](docs/status.md) | 已完成功能、已知限制 |
 | [内核片段](kconfig/README.md) | `.config` 片段合并顺序与规则 |

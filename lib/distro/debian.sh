@@ -5,7 +5,9 @@
 # mmdebstrap bootstraps the rootfs straight into the freshly formatted root
 # partition: Debian's own base system (the "important" variant, what a minimal
 # netinst installs) plus the few packages the image's design relies on, with no
-# Recommends, no kernel and no initramfs. Its package set already
+# Recommends and no kernel. Only a root filesystem the kernel cannot mount by
+# itself (ZFS) brings an initramfs, built by initramfs-tools for the image's own
+# kernel (distro_build_initramfs). Its package set already
 # includes the -updates and -security archives, so the image ships patched. The
 # dpkg path filter (resources/debian/dpkg.cfg) governs the bootstrap itself and
 # stays in the image for every later install; resources/debian/rootfs is laid
@@ -35,7 +37,12 @@ source "${LIB_DIR}/distro/common/systemd.sh"
 DEBIAN_SUITE="${DEBIAN_SUITE:-trixie}"
 DEBIAN_MIRROR="${DEBIAN_MIRROR:-https://deb.debian.org/debian}"
 DEBIAN_SECURITY_MIRROR="${DEBIAN_SECURITY_MIRROR:-https://security.debian.org/debian-security}"
-DEBIAN_COMPONENTS="${DEBIAN_COMPONENTS:-main non-free-firmware}"
+# contrib carries the OpenZFS userspace, so a ZFS root adds it.
+if [[ "${ROOTFS_TYPE}" == zfs ]]; then
+  DEBIAN_COMPONENTS="${DEBIAN_COMPONENTS:-main contrib non-free-firmware}"
+else
+  DEBIAN_COMPONENTS="${DEBIAN_COMPONENTS:-main non-free-firmware}"
+fi
 # Keyring mmdebstrap verifies the archive with on the build host. The image names
 # its own copy (same path, from debian-archive-keyring) in its sources file.
 DEBIAN_KEYRING="${DEBIAN_KEYRING:-/usr/share/keyrings/debian-archive-keyring.gpg}"
@@ -269,6 +276,62 @@ distro_adapt_local_d() { systemd_adapt_local_d; }
 distro_install_resize_service() {
   [[ "${AUTO_RESIZE}" == "1" ]] || { log "AUTO_RESIZE=0; skipping first-boot rootfs expansion."; return 0; }
   systemd_install_rootfs_grow
+}
+
+# ------------------------------ ZFS root -------------------------------------
+# The engine builds the OpenZFS modules with the kernel (lib/fs/zfs.sh); Debian
+# supplies the userspace of the same release from contrib. zfs-initramfs asks
+# for "zfs-modules | zfs-dkms", which a package of no files answers: it tells
+# apt the modules are there, so zfs-dkms, and a compiler with it, never comes
+# in. zfsutils-linux gives the image an /etc/hostid, which the initramfs takes
+# along: the pool records the hostid of the system that imported it last, and
+# the initramfs and the booted system must agree on it. Every board flashed
+# from the image shares it, as they share the pool's name.
+distro_install_zfs() {
+  local version="$1" pkg=/tmp/arm-packer-zfs-modules
+  section "Installing the OpenZFS ${version} userspace (zfsutils-linux, zfs-initramfs)"
+  run_sudo mkdir -p "${MOUNTPOINT_ROOT}${pkg}/DEBIAN"
+  run_sudo tee "${MOUNTPOINT_ROOT}${pkg}/DEBIAN/control" >/dev/null <<EOF
+Package: arm-packer-zfs-modules
+Version: ${version}
+Architecture: all
+Maintainer: arm-packer <root@localhost>
+Provides: zfs-modules (= ${version})
+Description: OpenZFS kernel modules of the image's own kernel
+ arm-packer builds the OpenZFS modules together with the kernel and installs
+ them under /lib/modules beside its other modules. This package holds no files;
+ it tells the packages that need the modules, zfs-initramfs among them, that
+ they are there.
+EOF
+  _debian_chroot dpkg-deb --root-owner-group --build "${pkg}" "${pkg}.deb" \
+    || fatal "Could not build the zfs-modules package."
+  distro_install_pkgs "${pkg}.deb zfsutils-linux zfs-initramfs" || fatal "Could not install the OpenZFS userspace."
+  run_sudo rm -rf "${MOUNTPOINT_ROOT}${pkg}" "${MOUNTPOINT_ROOT}${pkg}.deb"
+  [[ -s "${MOUNTPOINT_ROOT}/etc/hostid" ]] || fatal "zfsutils-linux left no /etc/hostid."
+  # shellcheck disable=SC2016  # ${Version} is dpkg-query's field, not a shell variable.
+  log "OpenZFS userspace $(run_sudo chroot "${MOUNTPOINT_ROOT}" dpkg-query -W -f='${Version}' zfsutils-linux), hostid $(_debian_chroot hostid)."
+}
+
+# Every driver between power-on and the root disk is built into the kernel, so
+# MODULES=list keeps the initramfs to what its hooks add: the ZFS modules and
+# the tools that import the pool. It is built here, once per kernel, and goes
+# beside that kernel on the ESP, not to /boot: the board has no kernel package
+# for update-initramfs to rebuild it for. mkinitramfs checks the compressor
+# (zstd, its default) against the kernel's configuration, which it finds beside
+# the modules, where a packaged kernel would leave it.
+distro_build_initramfs() {
+  local krel="$1" out="$2" tmp=/tmp/arm-packer-initrd.img
+  section "Building the initramfs for ${krel} (initramfs-tools)"
+  distro_install_pkgs "initramfs-tools zstd" || fatal "Could not install initramfs-tools."
+  run_sudo install -m 0644 "${KERNEL_BUILD_DIR}/.config" "${MOUNTPOINT_ROOT}/lib/modules/${krel}/config-${krel}"
+  run_sudo tee "${MOUNTPOINT_ROOT}/etc/initramfs-tools/conf.d/arm-packer.conf" >/dev/null <<'EOF'
+# The kernel has every driver it needs to reach the root disk built in; the
+# initramfs carries only what its hooks add (arm-packer).
+MODULES=list
+EOF
+  _debian_chroot mkinitramfs -o "${tmp}" "${krel}" || fatal "mkinitramfs failed for ${krel}."
+  run_sudo mv -f "${MOUNTPOINT_ROOT}${tmp}" "${out}"
+  log "initramfs: ${out} ($(du -h "${out}" | cut -f1))"
 }
 
 # ------------------------------ Wrap-up --------------------------------------

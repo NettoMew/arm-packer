@@ -26,6 +26,7 @@ print_environment_summary() {
   log "Vendor/SoC: ${BOARD_VENDOR}/${BOARD_SOC}"
   distro_env_summary
   vendor_env_summary
+  fs_env_summary
   log "Linux: ${KERNEL_REPO} @ ${KERNEL_REF} (${KERNEL_DEFCONFIG}, ${KERNEL_DTB})"
   log "Console: ${SERIAL_CONSOLE},${SERIAL_BAUD}n8"
 }
@@ -34,6 +35,7 @@ run_pipeline() {
   print_environment_summary
   swupdate_preflight
   install_dependencies
+  fs_check_host                  # e.g. ZFS: the pool is created on this host
   prepare_workspace
   distro_prepare                 # host-side payload + tooling (apk.static / rootfs tarball)
   fetch_sources
@@ -49,6 +51,7 @@ run_pipeline() {
       return 0
     fi
   fi
+  fs_build_modules               # e.g. OpenZFS, against the kernel just built
   board_hook build_modules       # out-of-tree drivers (e.g. AIC8800; incremental)
   make_empty_image_and_partition
   write_bootloader_to_image

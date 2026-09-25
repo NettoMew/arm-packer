@@ -43,7 +43,7 @@ eweOS = musl libc + busybox coreutils + pacman + dinit init，rolling，aarch64 
 ## Debian 专项处理
 
 目标是**最小化但完整可用、开机快**：以 Debian 自己定义的基础系统（`important` 优先级，即最小
-netinst 装出来的那一层）为底，再显式列出方案依赖的包；不装 Recommends、dbus、内核与 initramfs，
+netinst 装出来的那一层）为底，再显式列出方案依赖的包；不装 Recommends、dbus 与内核，initramfs 只在根文件系统需要时才有（ZFS），
 约 156 个包（rock5c 加 Wi-Fi 用户态 163 个）。全部包在构建期装完，首启不需要联网。
 
 - **为什么不更薄**：`apt`/`required` variant 实测不够用——trixie 的 `login` 已不是 Essential，
@@ -67,8 +67,13 @@ netinst 装出来的那一层）为底，再显式列出方案依赖的包；不
   的 drop-in 以「密钥不存在」为条件在板上生成，每块板一套。
 - **少写存储**：journald 只放内存（`Storage=volatile`，上限 16M）；屏蔽 `apt-daily*`、
   `dpkg-db-backup`、`e2scrub*` 定时任务，保留 `fstrim.timer`。
-- **不会装回发行版内核**：`preferences.d` 把 `linux-image-*`、`linux-headers-*`、initramfs 生成器
-  钉为 -1。
+- **不会装回发行版内核**：`preferences.d` 把 `linux-image-*`、`linux-headers-*`、dracut（`dracut`、`dracut-core`；initramfs-tools 要用的 `dracut-install` 放行）与 `zfs-dkms`
+  钉为 -1（initramfs-tools 放行：ZFS 根要靠它做 initramfs）。
+- **ZFS 根**（`ROOTFS_TYPE=zfs`，dragon-q8b 默认）：源加 `contrib`，装 `zfsutils-linux` + `zfs-initramfs`；
+  后者依赖的 `zfs-modules | zfs-dkms` 由构建期生成的空包 `arm-packer-zfs-modules`（`Provides: zfs-modules`）
+  满足，模块本身是引擎随内核编的同版本 OpenZFS。initramfs 由 `mkinitramfs` 为镜像内核生成（`MODULES=list`：
+  只含钩子加的 ZFS 模块与导入工具，约十几 MB），放在 ESP 内核旁，不进 `/boot`，板上 `update-initramfs` 不会动它。
+  `zfsutils-linux` 生成的 `/etc/hostid` 随镜像固定：initramfs 与系统须一致，池才不会被当成别的主机的。
 - **默认无头**：`GPU_USERSPACE_PACKAGES` 默认空（Debian 的 Mesa 会带上 ~100M 的 libLLVM），需要时
   设为 `libgl1-mesa-dri libegl1 libgles2 libgbm1`；Wi-Fi 用户态只装 `wpasupplicant iw`，蓝牙
   （bluez 依赖 dbus）按需加进 `WIFI_USERSPACE_PACKAGES`。

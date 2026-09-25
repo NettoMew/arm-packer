@@ -1,6 +1,7 @@
-# The board boots the mainline kernel that arm-packer installs into /boot, with
-# no initramfs. A packaged kernel or initramfs generator could only compete with
-# it, so apt never installs one.
-Package: linux-image-* linux-headers-* initramfs-tools* dracut*
+# The board boots the mainline kernel arm-packer builds, with the OpenZFS modules
+# built beside it and, when the root filesystem needs one, an initramfs made by
+# initramfs-tools. A packaged kernel, another initramfs generator or ZFS modules
+# built by DKMS could only compete with them, so apt never installs one.
+Package: linux-image-* linux-headers-* dracut dracut-core zfs-dkms
 Pin: release *
 Pin-Priority: -1

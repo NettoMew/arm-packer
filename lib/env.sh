@@ -63,12 +63,9 @@ SERIAL_BAUD="${SERIAL_BAUD:-${BOARD_SERIAL_BAUD}}"
 # First partition starts at 16 MiB: clear of every vendor's raw-sector bootloader
 # (Rockchip idbloader/u-boot.itb up to ~12 MiB, Allwinner SPL at 8 KiB).
 ROOTFS_PART_START_SECTOR="${ROOTFS_PART_START_SECTOR:-32768}"
-ROOTFS_LABEL="${ROOTFS_LABEL:-alpine_root}"
-# Keep the root filesystem readable by U-Boot's conservative ext4 implementation.
-# Recent e2fsprogs defaults can enable metadata_csum_seed/orphan_file/64bit; these
-# are useful on large server filesystems but unnecessary for small SBC boot images
-# and can make U-Boot find extlinux.conf yet fail loading /boot/Image.
-ROOTFS_EXT4_FEATURES="${ROOTFS_EXT4_FEATURES:-^metadata_csum,^metadata_csum_seed,^orphan_file,^64bit}"
+# Root filesystem: selects lib/fs/<type>.sh (ext4, or zfs where the boot chain
+# loads the kernel from an ESP). Its own knobs live in that plugin.
+ROOTFS_TYPE="${ROOTFS_TYPE:-${BOARD_ROOTFS_TYPE:-ext4}}"
 IMAGE_HOSTNAME="${IMAGE_HOSTNAME:-${BOARD_HOSTNAME}}"
 
 # Time sync. These boards have no battery-backed RTC, so the clock starts wrong
@@ -168,6 +165,9 @@ ROOT_PARTUUID=""
 # when the layout has one; set by load_partition_layout (lib/image.sh).
 ROOT_PART=""
 ESP_MOUNT=""
+# Initramfs the root filesystem needs to mount (host path), set by fs_install
+# (lib/fs/*.sh) and installed beside the kernel by the boot scheme; empty for none.
+ROOTFS_INITRD=""
 SUDO=""
 RESOLVED_KERNEL_VERSION=""
 RESOLVED_ALPINE_URL=""

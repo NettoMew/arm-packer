@@ -14,7 +14,8 @@
 # shellcheck source=../boot/uefi.sh
 source "${LIB_DIR}/boot/uefi.sh"
 
-# 512 MiB of ESP holds a few kernel versions side by side (~90 MB each).
+# 512 MiB of ESP holds a few kernel versions side by side (~90 MB each, plus
+# an initramfs where the root filesystem needs one).
 QCOM_ESP_SIZE="${QCOM_ESP_SIZE:-512M}"
 
 vendor_required_keys() { :; }
@@ -39,9 +40,10 @@ vendor_assert_sources()    { :; }
 vendor_build_bootloader() { log "UEFI firmware lives on the board; no bootloader to build."; }
 
 vendor_partition_table() { printf 'gpt\n'; }
+# The kernel boots from the ESP, so the root filesystem is the image's choice.
 vendor_partition_layout() {
   printf 'esp %s vfat /boot/efi\n' "${QCOM_ESP_SIZE}"
-  printf 'root rest ext4 /\n'
+  printf 'root rest %s /\n' "${ROOTFS_TYPE}"
 }
 
 vendor_write_bootloader() { :; }   # nothing lives in raw disk sectors

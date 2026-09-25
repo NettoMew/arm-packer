@@ -20,6 +20,7 @@ cleanup() {
       # rootfs (e.g. Arch's build-time pacman-key chroot); plain umount would EBUSY.
       run_sudo umount -lR "${MOUNTPOINT_ROOT}" || run_sudo umount "${MOUNTPOINT_ROOT}"
     fi
+    fs_release    # e.g. export the ZFS pool, which would otherwise hold the loop device
   fi
   if [[ -n "${LOOPDEV}" ]]; then
     run_sudo losetup -d "${LOOPDEV}"

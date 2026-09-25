@@ -2,9 +2,11 @@
 # lib/rootfs.sh — distro-agnostic rootfs assembly. The userspace specifics
 # (package manager, init system, network) live behind the distro_* contract
 # (lib/distro/<distro>.sh); the boot scheme (kernel placement + loader config)
-# behind vendor_install_boot (lib/boot/*.sh). This file owns only the parts
-# shared by every distro and every boot scheme: modules, the kernel command
-# line, fstab, hostname, root access, firmware and the board overlays.
+# behind vendor_install_boot (lib/boot/*.sh); what the root filesystem needs to
+# boot (modules, initramfs, root= and its fstab line) behind fs_* (lib/fs/*.sh).
+# This file owns only the parts shared by every distro and every boot scheme:
+# modules, the kernel command line, fstab, hostname, root access, firmware and
+# the board overlays.
 
 populate_rootfs() {
   distro_bootstrap_rootfs
@@ -23,9 +25,11 @@ populate_rootfs() {
 
   [[ -n "${ROOT_PARTUUID}" ]] || read_root_partuuid
 
-  vendor_install_boot             # kernel + DTB + extlinux.conf or ESP loader entry
-  write_fstab
+  # Before fs_install: an initramfs takes the hostname along.
   printf '%s\n' "${IMAGE_HOSTNAME}" | run_sudo tee "${MOUNTPOINT_ROOT}/etc/hostname" >/dev/null
+  fs_install                      # e.g. ZFS: modules, userspace and the initramfs
+  vendor_install_boot             # kernel + DTB (+ initramfs) + extlinux.conf or ESP loader entry
+  write_fstab
 
   distro_write_repos
   distro_configure_network        # base lo/eth0 (+ eth1 if BOARD_SECOND_NIC)
@@ -45,7 +49,7 @@ populate_rootfs() {
 
 # The kernel command line, identical for every boot scheme.
 kernel_cmdline() {
-  printf '%s\n' "root=PARTUUID=${ROOT_PARTUUID} rootwait rw console=tty1 console=${SERIAL_CONSOLE},${SERIAL_BAUD}n8 earlycon${BOARD_KERNEL_CMDLINE_EXTRA:+ ${BOARD_KERNEL_CMDLINE_EXTRA}}"
+  printf '%s\n' "$(fs_root_cmdline) console=tty1 console=${SERIAL_CONSOLE},${SERIAL_BAUD}n8 earlycon${BOARD_KERNEL_CMDLINE_EXTRA:+ ${BOARD_KERNEL_CMDLINE_EXTRA}}"
 }
 
 # fsck for the layout's vfat partitions (dosfstools), which write_fstab has
@@ -60,14 +64,15 @@ install_filesystem_tools() {
   done
 }
 
-# Root first, then every other partition of the layout, mounted with nofail so
-# that a missing one never keeps the system from booting. vfat ones are checked
-# first: UEFI firmware opens the ESP for writing at every boot and leaves its
-# dirty bit set, which fsck clears before Linux mounts it and complains.
+# Root first (unless its filesystem mounts itself, like ZFS), then every other
+# partition of the layout, mounted with nofail so that a missing one never keeps
+# the system from booting. vfat ones are checked first: UEFI firmware opens the
+# ESP for writing at every boot and leaves its dirty bit set, which fsck clears
+# before Linux mounts it and complains.
 write_fstab() {
   log "Writing fstab"
   {
-    printf 'PARTUUID=%s / ext4 rw,noatime 0 1\n' "${ROOT_PARTUUID}"
+    fs_fstab_root
     local i
     for i in "${!PART_NAMES[@]}"; do
       [[ "${PART_MOUNTS[i]}" == / ]] && continue

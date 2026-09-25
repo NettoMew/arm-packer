@@ -1,7 +1,7 @@
 # CLAUDE.md — 项目向导（给 Claude Code 看的）
 
 主线 SBC 固件构建器：从主线源码为多块 Rockchip / Allwinner / Qualcomm 开发板构建可直接烧录的整盘镜像。
-**三根正交插件轴：board × vendor × distro**，外加 kconfig 片段轴。引擎 `lib/*.sh` 里**没有任何
+**三根正交插件轴：board × vendor × distro**，外加根文件系统轴（`lib/fs`）与 kconfig 片段轴。引擎 `lib/*.sh` 里**没有任何
 board/vendor/distro 的 `if` 分支**——差异全在插件/配置里。加一块板/一个发行版 = 加一个文件，不改引擎。
 
 ## 入口 & 跑法
@@ -15,13 +15,14 @@ board/vendor/distro 的 `if` 分支**——差异全在插件/配置里。加一
 
 ## 目录 / 职责
 ```
-scripts/build.sh    唯一入口(orchestrator)：解析 flags → 载 board.conf → 载 vendor+distro+hooks → 派生 → run_pipeline
+scripts/build.sh    唯一入口(orchestrator)：解析 flags → 载 board.conf → 载 vendor+distro+fs+hooks → 派生 → run_pipeline
 lib/log,env,deps,workspace,sources,kernel,image,rootfs,wifi,pipeline.sh   引擎模块(distro/vendor 无关)
 lib/aic8800.sh lib/qebspil.sh        板子按需 source 的共享能力：AIC8800 驱动 / Qualcomm EL2 的 DSP 预启动 UEFI 驱动
 lib/vendor/{rockchip,allwinner,qcom}.sh   厂商插件(启动链)：vendor_* 契约
 lib/boot/{uboot,uefi}.sh             启动方式，由厂商插件 source：U-Boot + extlinux / 板载 UEFI + systemd-boot(ESP, BLS)
 lib/distro/{alpine,archlinux,debian,eweos}.sh   发行版插件(用户态)：distro_* 契约
 lib/distro/common/systemd.sh         systemd 系插件(archlinux/debian)共用的离线原语，由插件自行 source
+lib/fs/{ext4,zfs}.sh                 根文件系统插件(ROOTFS_TYPE)：fs_* 契约；zfs 随内核编 OpenZFS 模块、带 initramfs
 boards/<board>/board.conf            每板声明式配置(必填键见下)
 boards/{m28k,rock5c}/hooks.sh        板级钩子(可选)：board_* 函数；就近放 DTS/补丁/固件移植/OLED
 kconfig/*.fragment + distro-arm64.config   可组合内核片段(见 kconfig/README.md)
@@ -30,22 +31,26 @@ resources/systemd/  resources/debian/   systemd 早期扩容单元 / Debian 的 
 work/  out/                          源码树工作区 / 成品
 ```
 
-## 三个契约（改引擎时照着调用，别加 if 分支）
+## 契约（改引擎时照着调用，别加 if 分支）
 - **board.conf**（纯赋值）必填：`BOARD_VENDOR BOARD_SOC BOARD_KERNEL_DTB BOARD_IMAGE_PREFIX
   BOARD_HOSTNAME BOARD_MENU_TITLE BOARD_SERIAL_CONSOLE` + 厂商要求的键（`vendor_required_keys`，
   U-Boot 厂商要 `BOARD_UBOOT_DEFCONFIG`）；选填 `BOARD_SERIAL_BAUD BOARD_KERNEL_CMDLINE_EXTRA
-  BOARD_SECOND_NIC BOARD_NICS BOARD_KERNEL_FRAGMENTS`。
+  BOARD_SECOND_NIC BOARD_NICS BOARD_KERNEL_FRAGMENTS BOARD_ROOTFS_TYPE`（默认 ext4）。
   可选 `firmware.lock`（按 commit + SHA-256 锁固件；`file`/`link`/`source`，URL 可用 `{path}` 占位）。
 - **vendor_\***（`lib/vendor/<vendor>.sh`）：`vendor_required_keys / _select_blobs / _default_fragments /
   _fetch_extra / _fetch_assert_skip / _assert_sources / _build_bootloader / _partition_table /
   _partition_layout / _write_bootloader / _install_boot / _firmware_extras / _env_summary`。
   分区布局每行 `名称 大小 文件系统 挂载点`（`rest` 取剩余）；`IMAGE_SIZE` 只算根分区，ESP 另加。
+  根分区行的文件系统须等于 `ROOTFS_TYPE`：UEFI 厂商照填，U-Boot 厂商从根分区读内核、固定 ext4。
 - **distro_\***（`lib/distro/<distro>.sh`）：`distro_prepare / _bootstrap_rootfs / _install_pkgs /
   _write_repos / _configure_time / _configure_network / _add_wifi_iface / _configure_console /
   _enable_base_services / _enable_services / _install_oneshot / _adapt_local_d / _install_resize_service /
   _finalize / _default_fragments / _env_summary`；并设 `DISTRO_PRETTY DISTRO_IMAGE_SIZE
-  GPU_USERSPACE_PACKAGES WIFI_USERSPACE_PACKAGES`。
+  GPU_USERSPACE_PACKAGES WIFI_USERSPACE_PACKAGES`。能引导 ZFS 根的另实现 `distro_install_zfs 版本 /
+  distro_build_initramfs 内核release 输出路径`（目前只有 debian；其余发行版配 zfs 在 dry-run 就报错）。
   `_adapt_local_d`：把板子 `files/` 覆盖进来的 OpenRC `/etc/local.d/*.start` 在 systemd 发行版上转成 oneshot 单元（Alpine no-op）。
+- **fs_\***（`lib/fs/<type>.sh`）：`fs_env_summary / _check_config / _check_host / _build_modules / _format /
+  _mount / _release / _install / _root_cmdline / _fstab_root`；`fs_install` 可设 `ROOTFS_INITRD`，启动方式把它装到内核旁边。
 - **board_\* 钩子**（可选）：`board_inject_sources / _build_modules / _install_modules /
   _install_userspace / _configure_runtime / _install_extras`；pipeline 用 `board_hook <name>` 调，未定义即 no-op。
   源码注入按 `board_inject_uboot_sources / board_inject_kernel_sources / board_prepare_modules` 拆分，
@@ -82,6 +87,11 @@ work/  out/                          源码树工作区 / 成品
   `DRM_MSM=m`、`EEPROM_AT24=y` 都是有意的：前者内建会在根分区挂载前请求 GPU 固件而报错，后者做成模块会让 PCIe（TC9563
   的 pwrctrl 要从这块 EEPROM 读 MAC）一直延迟重试到 udev 起来。组合 DTB（base + `.dtbo`）没有 `.dts`，
   引擎按 Makefile 的 `-dtbs :=` 规则认它（`kernel_dtb_has_source`）。
+- **ZFS 根**（dragon-q8b 默认，`lib/fs/zfs.sh`）：OpenZFS 版本锁在 `config/versions.conf`，须与 Debian contrib 的
+  zfsutils-linux 同版本，且 META 的 `Linux-Maximum` 要覆盖内核（升内核时 `kernel-build` 会一并编 ZFS）。池在构建机上
+  建，构建机内核要有 zfs 模块（容器里要在宿主上 `modprobe zfs`）；以临时名 `arm-packer-<pid>` 导入，永不与宿主的
+  `rpool` 冲突，结束时 trim + 导出。zfs-initramfs 依赖 `zfs-modules | zfs-dkms`，由空包 `arm-packer-zfs-modules`
+  声明满足。`/etc/hostid` 随镜像固定（initramfs 与系统必须一致），不要在 finalize 里删。
 
 ## 验证手段
 - 改完先 `bash -n` 全部脚本 + 各板 `--dry-run`（看 vendor/SoC、分区表、片段列表与顺序、钩子、镜像名、IMAGE_SIZE）。

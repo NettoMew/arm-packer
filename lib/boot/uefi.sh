@@ -9,8 +9,10 @@
 # and SHA-256 in config/versions.conf. Only the single EFI binary is used, so the
 # scheme works the same under every distro plugin.
 #
-# The kernel and DTB live on the ESP (systemd-boot reads FAT only), under a
-# per-version directory so that a later kernel can sit beside this one.
+# The kernel, the DTB and the initramfs a root filesystem may need (lib/fs/*.sh)
+# live on the ESP (systemd-boot reads FAT only), under a per-version directory so
+# that a later kernel can sit beside this one. The root filesystem is therefore
+# free: the vendor plugins of this scheme lay it out as ROOTFS_TYPE.
 
 SYSTEMD_BOOT_EFI=""   # set by uefi_fetch_systemd_boot
 
@@ -44,8 +46,9 @@ uefi_env_summary() {
   log "boot: board UEFI firmware → systemd-boot ${SYSTEMD_BOOT_VERSION} (ESP, Boot Loader Specification)"
 }
 
-# Kernel, DTB, systemd-boot and one BLS entry onto the ESP. loader.conf names
-# the entry exactly, so an entry added by hand never takes over by sort order.
+# Kernel, DTB, initramfs (if any), systemd-boot and one BLS entry onto the ESP.
+# loader.conf names the entry exactly, so an entry added by hand never takes
+# over by sort order.
 boot_install_bls() {
   section "Installing systemd-boot, kernel and loader entry on the ESP"
   [[ -f "${SYSTEMD_BOOT_EFI}" ]] || uefi_fetch_systemd_boot
@@ -57,6 +60,7 @@ boot_install_bls() {
   run_sudo install -D -m 0644 "${SYSTEMD_BOOT_EFI}" "${esp}/EFI/systemd/systemd-bootaa64.efi"
   run_sudo install -D -m 0644 "${KERNEL_BUILD_DIR}/arch/arm64/boot/Image" "${esp}/${kdir}/Image"
   run_sudo install -D -m 0644 "${KERNEL_BUILD_DIR}/arch/arm64/boot/dts/${KERNEL_DTB}" "${esp}/${kdir}/dtbs/${KERNEL_DTB}"
+  [[ -z "${ROOTFS_INITRD}" ]] || run_sudo install -D -m 0644 "${ROOTFS_INITRD}" "${esp}/${kdir}/initrd.img"
 
   run_sudo mkdir -p "${esp}/loader/entries"
   run_sudo tee "${esp}/loader/loader.conf" >/dev/null <<CONF
@@ -64,12 +68,13 @@ default ${id}.conf
 timeout 3
 console-mode keep
 CONF
-  run_sudo tee "${esp}/loader/entries/${id}.conf" >/dev/null <<CONF
-title      ${DISTRO_PRETTY:-Linux} ${RESOLVED_KERNEL_VERSION} (${BOARD_MENU_TITLE})
-version    ${RESOLVED_KERNEL_VERSION}
-linux      /${kdir}/Image
-devicetree /${kdir}/dtbs/${KERNEL_DTB}
-options    $(kernel_cmdline)
-CONF
-  log "Loader entry: ${id}.conf (/${kdir})"
+  {
+    printf 'title      %s %s (%s)\n' "${DISTRO_PRETTY:-Linux}" "${RESOLVED_KERNEL_VERSION}" "${BOARD_MENU_TITLE}"
+    printf 'version    %s\n' "${RESOLVED_KERNEL_VERSION}"
+    printf 'linux      /%s/Image\n' "${kdir}"
+    [[ -z "${ROOTFS_INITRD}" ]] || printf 'initrd     /%s/initrd.img\n' "${kdir}"
+    printf 'devicetree /%s/dtbs/%s\n' "${kdir}" "${KERNEL_DTB}"
+    printf 'options    %s\n' "$(kernel_cmdline)"
+  } | run_sudo tee "${esp}/loader/entries/${id}.conf" >/dev/null
+  log "Loader entry: ${id}.conf (/${kdir}${ROOTFS_INITRD:+, with initramfs})"
 }

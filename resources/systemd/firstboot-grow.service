@@ -1,5 +1,5 @@
 [Unit]
-Description=First-boot rootfs grow (sfdisk + resize2fs)
+Description=First-boot rootfs grow (partition, then ext4 or the ZFS pool)
 DefaultDependencies=no
 After=systemd-remount-fs.service local-fs.target
 Before=sysinit.target shutdown.target

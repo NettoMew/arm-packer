@@ -1,12 +1,12 @@
 # Radxa Dragon Q8B（Qualcomm SC8280XP）
 
-> 状态：**镜像只跑 EL2（KVM 可用），已在真板上从 NVMe 启动验证**。开机没有 err 级别的内核日志，
+> 状态：**镜像只跑 EL2（KVM 可用），根文件系统是 ZFS，已在真板上从 NVMe 启动验证**。开机没有 err 级别的内核日志，
 > journal 里没有错误，也没有失败的服务。Wi-Fi/蓝牙（M.2 的 Intel AX210 系网卡）、声卡、GPU、双网口、
 > Iris 硬件视频编解码（H.264/H.265）都正常。
 
 Dragon Q8B 是高通 Snapdragon 8cx Gen 3（SC8280XP）开发板。它的启动链是厂商签名的板载固件加 UEFI，
-构建器不编译、也不写入任何引导程序；镜像是一块 GPT 盘：EFI 系统分区（ESP）加 ext4 根分区，由
-systemd-boot 读 Boot Loader Specification 启动项引导内核。
+构建器不编译、也不写入任何引导程序；镜像是一块 GPT 盘：EFI 系统分区（ESP）加一个 ZFS 池（`rpool`），由
+systemd-boot 读 Boot Loader Specification 启动项引导内核与 initramfs，initramfs 导入池、挂上根。
 
 ```sh
 DISTRO=debian make dragon-q8b      # 产出 out/radxa-dragon-q8b-debian-<内核版本>.img.xz
@@ -18,7 +18,7 @@ make dragon-q8b-dry                # 只看配置
 | 项目 | 情况 | 本项目怎么处理 |
 |---|---|---|
 | 启动链 | SPI NOR：Qualcomm PBL → XBL → Radxa EDK2 UEFI，不可替换；开机 F2 进设置 | 不编引导程序，盘头 16 MiB 保持全零 |
-| 启动盘 | 标准 GPT + ESP；默认顺序 USB → SD → NVMe → UFS，逐个找 `\EFI\BOOT\BOOTAA64.EFI` | 512M ESP（`p1`）+ ext4 根（`p2`） |
+| 启动盘 | 标准 GPT + ESP；默认顺序 USB → SD → NVMe → UFS，逐个找 `\EFI\BOOT\BOOTAA64.EFI` | 512M ESP（`p1`）+ ZFS 池（`p2`） |
 | 设备树 | UEFI 自带一份；启动项里的 `devicetree` 可换成系统自带的 | 启动项里写 `devicetree`，用本项目编出的 DTB |
 | 异常级别 | 默认在 Qualcomm 的 hypervisor 下以 EL1 启动；DTB 带 `/chosen/radxa,enable-kvm` 时固件改为 EL2 启动 | 只跑 EL2 |
 | 主线内核 | 7.2.7 里没有 Q8B 的 DTS；TC956x 网卡驱动还在上游审阅 | 打 75 个补丁（见下） |
@@ -56,6 +56,7 @@ firmware/qcom/sc8280xp/qccdsp8280.mbn                    给 qebspil 用的 CDSP
 loader/loader.conf                            default arm-packer-7.2.7.conf，timeout 3
 loader/entries/arm-packer-7.2.7.conf
 arm-packer/7.2.7/Image                        带 EFI stub
+arm-packer/7.2.7/initrd.img                   导入 ZFS 池的 initramfs（约 13M）
 arm-packer/7.2.7/dtbs/qcom/sc8280xp-radxa-dragon-q8b-el2.dtb
 ```
 
@@ -63,9 +64,36 @@ arm-packer/7.2.7/dtbs/qcom/sc8280xp-radxa-dragon-q8b-el2.dtb
 title      Debian 7.2.7 (Radxa Dragon Q8B)
 version    7.2.7
 linux      /arm-packer/7.2.7/Image
+initrd     /arm-packer/7.2.7/initrd.img
 devicetree /arm-packer/7.2.7/dtbs/qcom/sc8280xp-radxa-dragon-q8b-el2.dtb
-options    root=PARTUUID=… rootwait rw console=tty1 console=ttyMSM0,115200n8 earlycon clk_ignore_unused efi=noruntime
+options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 earlycon clk_ignore_unused efi=noruntime
 ```
+
+### 根文件系统：ZFS
+
+`board.conf` 里 `BOARD_ROOTFS_TYPE="zfs"`，由根文件系统插件 `lib/fs/zfs.sh` 负责；内核在 ESP 上，根
+文件系统不受引导程序限制。给容器和虚拟机用，ZFS 的快照、克隆、压缩与校验比 ext4 合适。
+
+- **池与数据集**：`rpool`（`ashift=12`、`autotrim=on`，特性集限定 `openzfs-2.2-linux`），根数据集
+  `rpool/ROOT/debian`（`canmount=noauto`、挂在 `/`，是池的 `bootfs`）；所有数据集继承 `compression=zstd`、
+  `atime=off`、`xattr=sa`、`acltype=posixacl`、`dnodesize=auto`。容器与虚拟机的数据集按需自己建，
+  例如 `zfs create -o mountpoint=/var/lib/lxc rpool/lxc`。
+- **模块**：OpenZFS 2.3.9 发布包（版本与 SHA-256 锁在 `config/versions.conf`）随内核编译，与内核的其他
+  模块一起装进 `/lib/modules/<release>/extra`。升级内核时 `make kernel-build` 会一并编 ZFS；OpenZFS 的
+  `Linux-Maximum`（2.3.9 为 7.2）不覆盖新内核时构建直接报错，要先换 OpenZFS 版本。
+- **用户态**：Debian trixie contrib 的 `zfsutils-linux` 与 `zfs-initramfs`，与模块同为 2.3.9。
+  `zfs-initramfs` 要求的 `zfs-modules` 由一个不含文件的 `arm-packer-zfs-modules` 包声明，`zfs-dkms`
+  被 apt 钉死，不会装进编译器。
+- **启动**：initramfs 由 initramfs-tools 为镜像内核生成，`MODULES=list`，只含 `spl.ko`、`zfs.ko`、
+  `zpool`/`zfs`/`mount.zfs` 与导入脚本，约 13M（zstd），放在 ESP 内核旁。命令行是
+  `root=ZFS=rpool/ROOT/debian`，fstab 里没有根，只有 ESP。`/etc/hostid` 随镜像固定，initramfs 里是同一份。
+- **构建**：池在构建机上以临时名 `arm-packer-<pid>` 创建和导入，永远不会和构建机自己的 `rpool` 冲突；
+  特性集限定在 2.2，构建机的 OpenZFS 比镜像新也不会启用镜像不认识的特性。收尾时 `zpool trim` 把空闲块
+  还给稀疏镜像，再导出池，板子第一次导入时不会把它当成别的主机的池。构建机内核需要 zfs 模块（容器里
+  要在宿主上 `modprobe zfs`）和 `zfsutils-linux`。
+- **首次开机**：`firstboot-grow.service` 先把分区扩到整盘，再 `zpool online -e` 扩池。
+- **ARC**：保持 OpenZFS 默认上限（内存减 1G），内存紧张时会让出；虚拟机多时可以用
+  `options zfs zfs_arc_max=…` 压低。
 
 ### EL2 是怎么起来的
 
@@ -104,8 +132,8 @@ options    root=PARTUUID=… rootwait rw console=tty1 console=ttyMSM0,115200n8 e
   - 0073–0075：AudioReach 音量控件名不再拼接 widget 名（否则超过 ALSA 的 44 字节被截断）、拓扑的延迟
     绑定不再按 warning 打印、Adreno 的旧式 “vdd”/“vddcx” 电源改为可选获取。
 - **内核片段**：`kconfig/qcom-sc8280xp.fragment`（SoC）+ `boards/dragon-q8b/kernel.fragment`（TC956x
-  网卡、CH7218A HDMI、音频 codec、RTC）。不用 initramfs，从上电到挂上根分区（含 NVMe）这一路全部
-  内建。`DRM_MSM` 是模块：内建时 GPU 在根分区挂载前就请求固件，会报错；做成模块由 udev 在根分区挂好
+  网卡、CH7218A HDMI、音频 codec、RTC）。从上电到根盘（含 NVMe）这一路全部内建，initramfs 只管导入
+  ZFS 池。`DRM_MSM` 是模块：内建时 GPU 在根文件系统挂载前就请求固件，会报错；做成模块由 udev 在根文件系统挂好
   后加载，EFI framebuffer 撑到那时。`EEPROM_AT24` 与 GENI I2C 内建：TC9563 的 pwrctrl 要从这块 EEPROM
   读网口 MAC，做成模块时 PCIe 要一直延迟重试到 udev 起来。qcomtee 关掉：这块固件里的 QTEE 不响应内核的对象调用（EL1 下
   版本查询得 0.0.0，EL2 下直接 `-EINVAL`），镜像里也没有用它的程序。
@@ -133,7 +161,7 @@ options    root=PARTUUID=… rootwait rw console=tty1 console=ttyMSM0,115200n8 e
 2. BIOS 的 “Third-party OS Compatibility” 选项与 “Hypervisor Override” 保持默认。
 3. 固件按 USB → SD → NVMe 的顺序找启动盘。要从 NVMe 启动，拔掉带系统的 SD 卡（或把它的
    `EFI/BOOT/BOOTAA64.EFI` 改名）。串口接 40 针排针 8/10 脚，115200。
-4. 首次开机把根分区扩到整盘，并生成本机的 SSH 主机密钥与 DHCP 客户端 DUID（所以每次新刷的系统
+4. 首次开机把根分区与 ZFS 池扩到整盘，并生成本机的 SSH 主机密钥与 DHCP 客户端 DUID（所以每次新刷的系统
    可能拿到不同的 IP）。登录 `root` / `120102`。
 5. Wi-Fi：在 `/etc/wpa_supplicant/wpa_supplicant.conf` 填 SSID 与密码，`ifup wlan0`。
 
@@ -144,10 +172,13 @@ options    root=PARTUUID=… rootwait rw console=tty1 console=ttyMSM0,115200n8 e
   开机测试（U-Boot 路径未回归）。
 - Q8B 镜像离线审计：分区、ESP 内容与构建产物逐字节一致、唯一的启动项与 EL2 DTB（与板子 DTB 的差异
   恰好是上面几处）、qebspil 与 ESP 上的 DSP 固件、固件校验和与链接、内核配置与模块、fstab 的 ESP
-  fsck、dosfstools、dhcpcd、Wi-Fi 用户态且没有 dbus。
+  fsck、dosfstools、dhcpcd、Wi-Fi 用户态且没有 dbus；池以只读方式导入核对池属性、数据集属性与
+  已导出状态，initramfs 解开核对只有 `spl.ko`/`zfs.ko`、导入工具齐全、hostid 与根文件系统一致。
 - 真板（BIOS 6.0.260818，Intel SSDPEKKW256G8 NVMe 启动）：
-  - 固件跳过 SD 从 NVMe 启动 → qebspil 启动 ADSP/CDSP → `CPU: All CPU(s) started at EL2` → 不带
-    initramfs 挂上 NVMe 根分区，约 14 秒到登录；首启把根分区扩到 235G。
+  - 固件跳过 SD 从 NVMe 启动 → qebspil 启动 ADSP/CDSP → `CPU: All CPU(s) started at EL2` →
+    initramfs 加载 OpenZFS 2.3.9、导入 `rpool`、挂上 `rpool/ROOT/debian`，内核 6.3 秒 + 用户态 10.1 秒；
+    首启把池扩到 238G，根数据集 217M（zstd 压缩比 4.98x）。第二次开机
+    `zfs-import-cache` 正常，`zpool status` 健康；快照、`zfs diff`、新建数据集挂载都正常。
   - `dmesg -l err` 与 `journalctl -p err` 都为空，没有失败的服务，`systemctl is-system-running` 为 running。
   - KVM 以 VHE 初始化，一个最小 KVM 程序在客户机里执行指令并按预期以 MMIO 退出；ADSP、CDSP
     `attached`；eth0 2.5 Gbps、DHCP、外网；iwlwifi 加载 API 89 固件并能扫描；蓝牙固件加载成功；
@@ -163,6 +194,9 @@ options    root=PARTUUID=… rootwait rw console=tty1 console=ttyMSM0,115200n8 e
     节点都没开 ATS，PRI 用不上。
   - `Zap shader not enabled`：EL2 下固件关掉了 zap shader，上游 EL2 overlay 同样如此，这是 EL2 的正常路径。
   - `clk: Not disabling unused clocks`：固件总会在命令行里加上 `clk_ignore_unused`。
+  - `spl: loading out-of-tree module taints kernel`、`zfs: module license 'CDDL' taints kernel`：ZFS 不在
+    主线里、许可证是 CDDL，内核加载它时必然这样标记。initramfs 的 `lvm is not available` 是 ZFS 导入
+    脚本顺带查找 LVM 卷时的提示，镜像没有 LVM。
 
 ## 下一步
 
@@ -180,6 +214,9 @@ options    root=PARTUUID=… rootwait rw console=tty1 console=ttyMSM0,115200n8 e
 - eth1 只验证了识别，未接网线测传输。
 - Iris 的无 TZ 启动：固件 IOMMU 流 `0x2a02` 来自社区实测，不在官方 DT 里；绕过 TZ 意味着没有受保护内容
   播放；补丁上游尚未合入，以后可能要换成 Linux 管 IOMMU、TZ 做鉴权的新接口。
+- ZFS 是 CDDL 许可，和 GPL 的内核一起分发二进制在法律上有争议：镜像适合自用，公开分发前要想清楚。
+- 内核升级受 OpenZFS 支持范围约束（`Linux-Maximum`）；OpenZFS 与 Debian 的 `zfsutils-linux` 要一起升。
+- 同一镜像刷出的板子共用 `/etc/hostid` 与池名 `rpool`；两块盘插进同一台机器时要按 GUID 改名导入。
 - GStreamer 的 V4L2 解码器只认它预设的色彩描述组合，`videotestsrc` 生成的旧式 BT.601 描述
   （`2:4:5:4`）会协商失败；常见的 BT.709 视频不受影响。
 
