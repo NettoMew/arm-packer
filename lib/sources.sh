@@ -98,7 +98,7 @@ fetch_sources() {
   board_hook inject_sources
 
   vendor_assert_sources
-  [[ -f "${KERNEL_SRC_DIR}/arch/arm64/boot/dts/${KERNEL_DTS}" ]] || fatal "Kernel DTS source missing: arch/arm64/boot/dts/${KERNEL_DTS}"
+  kernel_dtb_has_source || fatal "Kernel tree cannot build arch/arm64/boot/dts/${KERNEL_DTB} (no .dts, no -dtbs rule)"
   resolve_kernel_identity
   finalize_image_name
 }

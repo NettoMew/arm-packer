@@ -34,7 +34,6 @@ uboot_build() {
 }
 
 uboot_env_summary() {
-  [[ -z "${BOARD_BOOT_VARIANTS:-}" ]] || fatal "BOARD_BOOT_VARIANTS needs the UEFI boot scheme (lib/boot/uefi.sh)."
   log "u-boot source: ${UBOOT_REPO} @ ${UBOOT_REF}"
   log "u-boot defconfig: ${UBOOT_DEFCONFIG}"
 }

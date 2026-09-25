@@ -41,7 +41,7 @@ kernel_validation_steps() {
   [[ "${version}" == "${expected}" ]] || fatal "Tag/version mismatch: ${KERNEL_REF} / ${version}"
 
   board_hook inject_kernel_sources
-  [[ -f "${KERNEL_SRC_DIR}/arch/arm64/boot/dts/${KERNEL_DTS}" ]] || fatal "Kernel DTS missing: ${KERNEL_DTS}"
+  kernel_dtb_has_source || fatal "Kernel tree cannot build ${KERNEL_DTB} (no .dts, no -dtbs rule)"
   board_hook prepare_modules
   STOP_AFTER_KCONFIG=0
   [[ "${mode}" == check ]] && STOP_AFTER_KCONFIG=1

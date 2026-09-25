@@ -9,6 +9,16 @@
 # kconfig/README.md. No `-r` (strict) — distro vs feature fragments intentionally
 # redefine some symbols (e.g. BRIDGE=y → =m).
 
+# True when the kernel tree can build KERNEL_DTB: from its own .dts, or, for a
+# DTB composed of a base and overlays (e.g. an EL2 variant), from the
+# "<name>-dtbs := ..." rule in its directory's Makefile.
+kernel_dtb_has_source() {
+  local dir name
+  dir="${KERNEL_SRC_DIR}/arch/arm64/boot/dts/$(dirname "${KERNEL_DTB}")"
+  name="$(basename "${KERNEL_DTB}" .dtb)"
+  [[ -f "${dir}/${name}.dts" ]] || grep -Eq "^${name}-dtbs[[:space:]]*:=" "${dir}/Makefile" 2>/dev/null
+}
+
 # Assemble KERNEL_FRAGMENT_LIST (absolute paths, in merge order).
 kernel_fragment_list() {
   local -a list=()

@@ -46,7 +46,6 @@ KERNEL_REPO="${KERNEL_REPO:-${DEFAULT_KERNEL_REPO}}"
 KERNEL_REF="${KERNEL_REF:-${DEFAULT_KERNEL_REF}}"
 KERNEL_DEFCONFIG="${KERNEL_DEFCONFIG:-defconfig}"
 KERNEL_DTB="${KERNEL_DTB:-${BOARD_KERNEL_DTB}}"
-KERNEL_DTS="${KERNEL_DTB%.dtb}.dts"
 
 # Optional SWUpdate test-image foundation; require explicit packages + trust key.
 ENABLE_SWUPDATE="${ENABLE_SWUPDATE:-0}"

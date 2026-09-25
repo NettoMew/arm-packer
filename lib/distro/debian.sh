@@ -198,6 +198,12 @@ distro_configure_network() {
     done
   } | run_sudo tee "${MOUNTPOINT_ROOT}/etc/network/interfaces" >/dev/null
 
+  # dhcpcd would otherwise hold each ifup for up to 30 s and log "timed out" as
+  # an error for a port with no cable; nothing waits on a hotplug port's lease.
+  grep -qx background "${MOUNTPOINT_ROOT}/etc/dhcpcd.conf" \
+    || printf '\n# Fork at once: hotplug ports need no lease to boot (arm-packer).\nbackground\n' \
+      | run_sudo tee -a "${MOUNTPOINT_ROOT}/etc/dhcpcd.conf" >/dev/null
+
   run_sudo tee "${MOUNTPOINT_ROOT}/etc/hosts" >/dev/null <<EOF
 127.0.0.1	localhost
 127.0.1.1	${IMAGE_HOSTNAME}

@@ -11,6 +11,7 @@ populate_rootfs() {
   mount_boot_partitions           # e.g. the ESP at /boot/efi
 
   install_kernel_modules
+  install_filesystem_tools        # e.g. fsck.vfat for an ESP
   board_hook install_modules      # out-of-tree drivers (e.g. AIC8800)
   board_hook install_userspace    # online wifi/bt userspace
   install_gpu_userspace
@@ -47,9 +48,22 @@ kernel_cmdline() {
   printf '%s\n' "root=PARTUUID=${ROOT_PARTUUID} rootwait rw console=tty1 console=${SERIAL_CONSOLE},${SERIAL_BAUD}n8 earlycon${BOARD_KERNEL_CMDLINE_EXTRA:+ ${BOARD_KERNEL_CMDLINE_EXTRA}}"
 }
 
-# Root first, then every other partition of the layout. Those are mounted with
-# nofail and never fscked: the rootfs does not necessarily carry fsck.vfat, and a
-# missing ESP must not keep the system from booting.
+# fsck for the layout's vfat partitions (dosfstools), which write_fstab has
+# checked before they are mounted.
+install_filesystem_tools() {
+  local fs
+  for fs in "${PART_FS[@]}"; do
+    [[ "${fs}" == vfat ]] || continue
+    section "Installing dosfstools (fsck for the vfat partitions)"
+    distro_install_pkgs dosfstools || fatal "Could not install dosfstools, which the vfat partitions need."
+    return 0
+  done
+}
+
+# Root first, then every other partition of the layout, mounted with nofail so
+# that a missing one never keeps the system from booting. vfat ones are checked
+# first: UEFI firmware opens the ESP for writing at every boot and leaves its
+# dirty bit set, which fsck clears before Linux mounts it and complains.
 write_fstab() {
   log "Writing fstab"
   {
@@ -57,8 +71,11 @@ write_fstab() {
     local i
     for i in "${!PART_NAMES[@]}"; do
       [[ "${PART_MOUNTS[i]}" == / ]] && continue
-      printf 'PARTUUID=%s %s %s %s 0 0\n' "$(partition_partuuid "$((i + 1))")" "${PART_MOUNTS[i]}" "${PART_FS[i]}" \
-        "$([[ "${PART_FS[i]}" == vfat ]] && printf 'umask=0077,noatime,nofail' || printf 'noatime,nofail')"
+      if [[ "${PART_FS[i]}" == vfat ]]; then
+        printf 'PARTUUID=%s %s vfat umask=0077,noatime,nofail 0 2\n' "$(partition_partuuid "$((i + 1))")" "${PART_MOUNTS[i]}"
+      else
+        printf 'PARTUUID=%s %s %s noatime,nofail 0 0\n' "$(partition_partuuid "$((i + 1))")" "${PART_MOUNTS[i]}" "${PART_FS[i]}"
+      fi
     done
     printf 'devpts /dev/pts devpts gid=5,mode=620 0 0\n'
     printf 'tmpfs /tmp tmpfs defaults,nosuid,nodev 0 0\n'

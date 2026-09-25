@@ -40,74 +40,36 @@ uefi_fetch_systemd_boot() {
   log "systemd-boot: ${SYSTEMD_BOOT_EFI} (${SYSTEMD_BOOT_VERSION})"
 }
 
-# BOARD_BOOT_VARIANTS="NAME=DTB ..." adds loader entries that boot the same
-# kernel with the same command line but another DTB, e.g. one the firmware reads
-# as "start the OS at EL2". Parsed into UEFI_BOOT_VARIANTS ("NAME DTB" each).
-UEFI_BOOT_VARIANTS=()
-uefi_parse_boot_variants() {
-  UEFI_BOOT_VARIANTS=()
-  local -a pairs
-  IFS=' ' read -r -a pairs <<< "${BOARD_BOOT_VARIANTS:-}"   # global IFS has no space
-  local pair
-  for pair in "${pairs[@]}"; do
-    [[ "${pair}" =~ ^([a-z0-9]+)=([^=]+\.dtb)$ ]] || fatal "BOARD_BOOT_VARIANTS: expected NAME=path/to/board.dtb, got '${pair}'"
-    UEFI_BOOT_VARIANTS+=("${BASH_REMATCH[1]} ${BASH_REMATCH[2]}")
-  done
-}
-
 uefi_env_summary() {
   log "boot: board UEFI firmware → systemd-boot ${SYSTEMD_BOOT_VERSION} (ESP, Boot Loader Specification)"
-  uefi_parse_boot_variants
-  local v
-  for v in "${UEFI_BOOT_VARIANTS[@]}"; do
-    log "boot variant: ${v% *} (${v#* })"
-  done
 }
 
-# One BLS entry: ID, the label in the title's parentheses, and the DTB it boots.
-bls_write_entry() {
-  local id="$1" label="$2" dtb="$3"
-  local esp="${MOUNTPOINT_ROOT}${ESP_MOUNT}" kdir="arm-packer/${RESOLVED_KERNEL_VERSION}"
-  run_sudo tee "${esp}/loader/entries/${id}.conf" >/dev/null <<EOF
-title      ${DISTRO_PRETTY:-Linux} ${RESOLVED_KERNEL_VERSION} (${label})
-version    ${RESOLVED_KERNEL_VERSION}
-linux      /${kdir}/Image
-devicetree /${kdir}/dtbs/${dtb}
-options    $(kernel_cmdline)
-EOF
-  log "Loader entry: ${id}.conf (${dtb})"
-}
-
-# Kernel, DTBs, systemd-boot and the BLS entries onto the ESP. The plain entry
-# is the default; variants are picked from the menu (or made the default in
-# loader.conf).
+# Kernel, DTB, systemd-boot and one BLS entry onto the ESP. loader.conf names
+# the entry exactly, so an entry added by hand never takes over by sort order.
 boot_install_bls() {
-  section "Installing systemd-boot, kernel and loader entries on the ESP"
+  section "Installing systemd-boot, kernel and loader entry on the ESP"
   [[ -f "${SYSTEMD_BOOT_EFI}" ]] || uefi_fetch_systemd_boot
   local esp="${MOUNTPOINT_ROOT}${ESP_MOUNT:?no ESP in the partition layout}"
-  local ver="${RESOLVED_KERNEL_VERSION}" kdir="arm-packer/${RESOLVED_KERNEL_VERSION}"
-  local dtbs="${KERNEL_BUILD_DIR}/arch/arm64/boot/dts"
+  local id="arm-packer-${RESOLVED_KERNEL_VERSION}" kdir="arm-packer/${RESOLVED_KERNEL_VERSION}"
   mountpoint -q "${esp}" || fatal "ESP is not mounted at ${esp}"
-  uefi_parse_boot_variants
 
   run_sudo install -D -m 0644 "${SYSTEMD_BOOT_EFI}" "${esp}/EFI/BOOT/BOOTAA64.EFI"
   run_sudo install -D -m 0644 "${SYSTEMD_BOOT_EFI}" "${esp}/EFI/systemd/systemd-bootaa64.efi"
   run_sudo install -D -m 0644 "${KERNEL_BUILD_DIR}/arch/arm64/boot/Image" "${esp}/${kdir}/Image"
-  run_sudo install -D -m 0644 "${dtbs}/${KERNEL_DTB}" "${esp}/${kdir}/dtbs/${KERNEL_DTB}"
+  run_sudo install -D -m 0644 "${KERNEL_BUILD_DIR}/arch/arm64/boot/dts/${KERNEL_DTB}" "${esp}/${kdir}/dtbs/${KERNEL_DTB}"
 
   run_sudo mkdir -p "${esp}/loader/entries"
-  run_sudo tee "${esp}/loader/loader.conf" >/dev/null <<EOF
-default arm-packer-${ver}.conf
+  run_sudo tee "${esp}/loader/loader.conf" >/dev/null <<CONF
+default ${id}.conf
 timeout 3
 console-mode keep
-EOF
-  bls_write_entry "arm-packer-${ver}" "${BOARD_MENU_TITLE}" "${KERNEL_DTB}"
-
-  local v name dtb
-  for v in "${UEFI_BOOT_VARIANTS[@]}"; do
-    name="${v% *}" dtb="${v#* }"
-    [[ -f "${dtbs}/${dtb}" ]] || fatal "Boot variant ${name}: ${dtb} was not built"
-    run_sudo install -D -m 0644 "${dtbs}/${dtb}" "${esp}/${kdir}/dtbs/${dtb}"
-    bls_write_entry "arm-packer-${ver}-${name}" "${BOARD_MENU_TITLE}, ${name^^}" "${dtb}"
-  done
+CONF
+  run_sudo tee "${esp}/loader/entries/${id}.conf" >/dev/null <<CONF
+title      ${DISTRO_PRETTY:-Linux} ${RESOLVED_KERNEL_VERSION} (${BOARD_MENU_TITLE})
+version    ${RESOLVED_KERNEL_VERSION}
+linux      /${kdir}/Image
+devicetree /${kdir}/dtbs/${KERNEL_DTB}
+options    $(kernel_cmdline)
+CONF
+  log "Loader entry: ${id}.conf (/${kdir})"
 }
