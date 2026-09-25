@@ -1,0 +1,78 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam <i@noc.cat>
+Date: Fri, 25 Sep 2026 07:00:32 +0000
+Subject: [PATCH 60/60] net: stmmac: tc956x: zero-initialise the MSIGEN IRQ domain
+ info
+
+tc956x_msigen_irq_domain_instantiate() builds its irq_domain_info and
+irq_domain_chip_generic_info on the stack and assigns only the fields it
+uses. Everything else (direct_max, fwnode, name_suffix, bus_token,
+parent, the generic chip's flag masks) holds whatever the stack held.
+
+On a kernel built without automatic stack initialisation, direct_max
+picks up a non-zero value and __irq_domain_create() rejects the domain:
+
+  WARNING: kernel/irq/irqdomain.c:244 at __irq_domain_create+0x20/0x1ac
+  dwmac_tc956x.dwmac-tc956x tc956x_pci.dwmac-tc956x.0: error -EINVAL:
+    failed to instantiate IRQ domain
+
+Both eMACs of the Radxa Dragon Q8B then fail to probe and the board has
+no wired network. Kernels built with CONFIG_INIT_STACK_ALL_ZERO happen to
+hide the problem.
+
+Use designated initialisers so every field the driver leaves out is zero.
+---
+ .../ethernet/stmicro/stmmac/dwmac-tc956x.c    | 34 +++++++++----------
+ 1 file changed, 17 insertions(+), 17 deletions(-)
+
+diff --git a/drivers/net/ethernet/stmicro/stmmac/dwmac-tc956x.c b/drivers/net/ethernet/stmicro/stmmac/dwmac-tc956x.c
+index b1cf2e6..ed01ba2 100644
+--- a/drivers/net/ethernet/stmicro/stmmac/dwmac-tc956x.c
++++ b/drivers/net/ethernet/stmicro/stmmac/dwmac-tc956x.c
+@@ -219,29 +219,29 @@ static void tc956x_msigen_irq_domain_exit(struct irq_domain *irq_domain)
+ static struct irq_domain *
+ tc956x_msigen_irq_domain_instantiate(struct tc956x_data *td)
+ {
+-	struct irq_domain_chip_generic_info dgc_info;
+-	struct irq_domain_info info;
++	struct irq_domain_chip_generic_info dgc_info = {
++		.handler = handle_level_irq,
++		.irqs_per_chip = HWIRQ_COUNT,
++		.num_ct = 1,
++		.init = tc956x_msigen_irq_chip_init,
++		.exit = tc956x_msigen_irq_chip_exit,
++	};
++	struct irq_domain_info info = {
++		.domain_flags = IRQ_DOMAIN_FLAG_DESTROY_GC,
++		.size = HWIRQ_COUNT,
++		.hwirq_max = HWIRQ_COUNT,
++		.ops = &irq_generic_chip_ops,
++		.host_data = td,
++		.dgc_info = &dgc_info,
++		.init = tc956x_msigen_irq_domain_init,
++		.exit = tc956x_msigen_irq_domain_exit,
++	};
+ 
+ 	dgc_info.name = devm_kasprintf(td->dev, GFP_KERNEL, "tc956x-msigen-%d",
+ 				       td->auxbus_data->mac_id);
+ 	if (!dgc_info.name)
+ 		return ERR_PTR(-ENOMEM);
+ 
+-	dgc_info.handler = handle_level_irq;
+-	dgc_info.irqs_per_chip = HWIRQ_COUNT;
+-	dgc_info.num_ct = 1;
+-	dgc_info.init = tc956x_msigen_irq_chip_init;
+-	dgc_info.exit = tc956x_msigen_irq_chip_exit;
+-
+-	info.domain_flags = IRQ_DOMAIN_FLAG_DESTROY_GC;
+-	info.size = HWIRQ_COUNT;
+-	info.hwirq_max = HWIRQ_COUNT;
+-	info.ops = &irq_generic_chip_ops;
+-	info.host_data = td;
+-	info.dgc_info = &dgc_info;
+-	info.init = tc956x_msigen_irq_domain_init;
+-	info.exit = tc956x_msigen_irq_domain_exit;
+-
+ 	return devm_irq_domain_instantiate(td->dev, &info);
+ }
+ 

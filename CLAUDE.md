@@ -72,7 +72,7 @@ work/  out/                          源码树工作区 / 成品
   根分区，systemd-boot 读 BLS 启动项（内核、dtb 都在 ESP）。
 - **内核源码树每次构建都 `git clean`**（内核 O= 树外编译，安全）：板子补丁新增的文件不会残留到下一块板；
   U-Boot 树只 `checkout`，因为它树内编译、`SKIP_BUILD=1` 要复用产物。
-- **Dragon Q8B**：59 个补丁在 `boards/dragon-q8b/linux/patches`（来源与刷新记录见同目录 README）；
+- **Dragon Q8B**：60 个补丁在 `boards/dragon-q8b/linux/patches`（来源与刷新记录见同目录 README）；
   `DRM_MSM=y` 依赖 `QCOM_OCMEM` 不能是 m（片段里已处理）；BIOS 第三方兼容选项须保持默认。
 
 ## 验证手段

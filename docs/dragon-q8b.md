@@ -19,7 +19,7 @@ make dragon-q8b-dry                # 只看配置
 | 启动链 | SPI NOR：Qualcomm PBL → XBL → Radxa EDK2 UEFI，不可替换；开机 F2 进设置 | 不编引导程序，盘头 16 MiB 保持全零 |
 | 启动盘 | 标准 GPT + ESP；默认顺序 USB → SD → NVMe → UFS | 512M ESP（`p1`）+ ext4 根（`p2`） |
 | 设备树 | UEFI 自带一份；Radxa 官方用启动项里的 `devicetree` 换成系统自带的 | 启动项里写 `devicetree`，用本项目编出的 DTB |
-| 主线内核 | 7.2.7 里没有 Q8B 的 DTS；TC956x 网卡驱动还在上游审阅 | 打 59 个补丁（见下） |
+| 主线内核 | 7.2.7 里没有 Q8B 的 DTS；TC956x 网卡驱动还在上游审阅 | 打 60 个补丁（见下） |
 | 串口 | 40 针排针 Pin 6 GND、Pin 8 TXD、Pin 10 RXD；`ttyMSM0`，115200 | `board.conf` 里写死 |
 | UFS | 需要 4096 字节逻辑扇区的镜像 | 还没做；先用 USB / microSD / NVMe |
 | USB | 两个 Type-C 在 DTS 里都是 host | 不能当 One-KVM 的 USB 设备端 |
@@ -63,8 +63,9 @@ options    root=PARTUUID=… rootwait rw console=tty1 console=ttyMSM0,115200n8 e
 
 ### 板级（`boards/dragon-q8b/`）
 
-- **内核补丁**（`linux/patches/`，59 个）：Armbian `sc8280xp-edge` 系列（armbian/build `1443dbae`）
-  带到 7.2.7：删掉 7.2.7 已包含或已被上游替代的 5 个，刷新 2 个。每个补丁的来源和刷新内容见
+- **内核补丁**（`linux/patches/`，60 个）：Armbian `sc8280xp-edge` 系列（armbian/build `1443dbae`）
+  带到 7.2.7：删掉 7.2.7 已包含或已被上游替代的 5 个，刷新 2 个；另加 0060，修 TC956x 网卡驱动在栈上
+  未初始化的 IRQ 域参数（内核不自动清零栈时两个网口都起不来）。每个补丁的来源和刷新内容见
   `linux/README.md`。
 - **内核片段**：`kconfig/qcom-sc8280xp.fragment`（SoC）+ `boards/dragon-q8b/kernel.fragment`（TC956x
   网卡、CH7218A HDMI、音频 codec、RTC）。不用 initramfs，所以从上电到挂上根分区这一路全部内建。
@@ -90,7 +91,12 @@ options    root=PARTUUID=… rootwait rw console=tty1 console=ttyMSM0,115200n8 e
 - Q8B 镜像：离线审计（分区、ESP 内容与构建产物逐字节一致、固件校验和、内核配置与模块）。
 - UEFI 路径：同一镜像在 qemu virt + edk2 上经 systemd-boot 启动（测试副本额外加一个不带
   `devicetree` 的启动项），验证 BLS、EFI stub、无 initramfs 挂根、fstab 挂 ESP、首启扩容。
-- **真板未测**：Q8B 的设备树、显示、网卡、风扇等只能上板确认。
+- 真板（BIOS 6.0.260818，microSD 启动）：UEFI → systemd-boot → 内核不带 initramfs 挂上根分区，
+  约 17 秒到串口登录。首启扩容、ESP 挂载、两块 NVMe 与 Wi-Fi 卡枚举、TC9563 交换芯片、ADSP/CDSP、
+  HDMI 控制台、RTC 均正常；两个 TC956x 网口都识别（MAC 取自 EEPROM），eth0 接线后 2.5 Gbps、
+  DHCP、apt 可用，eth1 未接线测试；GPU 首次打开时加载固件（`gpu-initialized: 1`）。
+- 已知现象：开机 5 秒左右 fbdev 先打开 GPU，那时根分区还没挂，日志里有一条 `a660_sqe.fw` 加载
+  失败；之后任何程序打开 DRM 设备都会重新加载，GPU 正常。
 
 ## 下一步
 
@@ -103,8 +109,9 @@ options    root=PARTUUID=… rootwait rw console=tty1 console=ttyMSM0,115200n8 e
 ## 风险与未验证项
 
 - 补丁系列跟着上游变：DTS、网卡驱动都还在审阅，锁定 7.2.x 跟 Armbian，DTS 进主线后逐个删除。
-- 不带 initramfs 的启动只在 qemu 上验证过；NVMe 在 PCIe 下、pwrctrl 与 fw_devlink 的顺序要上板确认，
-  备选是加 `fw_devlink=permissive`。
+- 不带 initramfs 的启动在真板上只验证了 microSD 作根分区；NVMe 作根分区时 PCIe、pwrctrl 与
+  fw_devlink 的顺序还要确认，备选是加 `fw_devlink=permissive`。
+- M.2 上用户自装的 Wi-Fi/蓝牙卡（如 Intel AX1675）的固件不在镜像里，按需自行安装。
 - BIOS 兼容选项必须保持默认，否则 UEFI 会改写我们提供的 DTB。
 - DSP 崩溃后需要重启；风扇与 USB-C 都依赖 ADSP。
 

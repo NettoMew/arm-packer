@@ -23,6 +23,12 @@ v7.2.3) carried forward to v7.2.7:
     connector's `edid_read` path updates the connector itself, and nothing else
     references the function.
 
+- **Added here:** 0060 zero-initialises the IRQ domain info that the TC956x
+  eMAC driver (Armbian 0028) builds on the stack. Without it, a kernel built
+  with `CONFIG_INIT_STACK_NONE` hands `__irq_domain_create()` a garbage
+  `direct_max`, both eMACs fail to probe with `-EINVAL`, and the board has no
+  wired network. Kernels that zero the stack automatically hide the bug.
+
 To refresh the series for another kernel, apply it with `git am` on a worktree
 of the new tag, resolve, and export again with
 `git format-patch --zero-commit --no-signature`.
@@ -88,3 +94,4 @@ of the new tag, resolve, and export again with
 | 0057 | `0061-drm-bridge-simple-discard-disabled-hpd-events.patch` |
 | 0058 | `0062-arm64-dts-qcom-sc8280xp-add-complete-thermal-zones.patch` |
 | 0059 | `0064-net-stmmac-tc956x-select-MAC-speed-before-PMA-init.patch` |
+| 0060 | (not in Armbian; added here) |

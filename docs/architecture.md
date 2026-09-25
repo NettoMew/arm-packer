@@ -60,7 +60,7 @@ boards/m28k/                  #   有屏 M28K：hooks.sh + kernel.fragment + 注
     kernel.fragment           #     板级内核片段（SSD130X + wifi/bt core）
     {uboot,linux,aic8800,oled,files}/   # DTS/补丁/固件移植/OLED 源/开机脚本
 boards/rock5c/                #   hooks.sh（RK3582 开核 + AIC8800 USB）+ uboot/aic8800 补丁
-boards/dragon-q8b/            #   board.conf + hooks.sh + kernel.fragment + firmware.lock + linux/patches（59 个）
+boards/dragon-q8b/            #   board.conf + hooks.sh + kernel.fragment + firmware.lock + linux/patches（60 个）
 # e20c / opiz3 纯主线，只有 board.conf，无 hooks/注入源
 kconfig/                      # 可组合内核片段 + distro-arm64.config 基线（见 kconfig/README.md）
 resources/rootfs/             # 固定 rootfs 文件（resize 脚本、wpa 模板、interfaces 基底）
