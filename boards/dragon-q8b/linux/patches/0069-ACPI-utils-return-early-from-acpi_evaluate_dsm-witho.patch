@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam <i@noc.cat>
-Date: Fri, 25 Sep 2026 09:10:21 +0000
-Subject: [PATCH 69/70] ACPI: utils: return early from acpi_evaluate_dsm()
+Date: Fri, 25 Sep 2026 10:04:54 +0000
+Subject: [PATCH 69/75] ACPI: utils: return early from acpi_evaluate_dsm()
  without a handle
 
 Drivers for devices that exist on both ACPI and device tree systems

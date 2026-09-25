@@ -2,8 +2,12 @@
 # kconfig/qcom-sc8280xp.fragment.
 
 # 2× 2.5 GbE: Toshiba TC9564 (QPS615) PCIe switch with integrated XGMAC + QCA8081
-# PHYs. The switch's power control is built in so it is up before PCIe probes.
+# PHYs. The switch's power control is built in so it is up before PCIe probes,
+# and so is the I2C EEPROM holding the two MAC addresses, which the power
+# control waits for: as a module it came only with udev, and PCIe was deferred
+# and retried until then.
 CONFIG_PCI_PWRCTRL_TC9563=y
+CONFIG_EEPROM_AT24=y
 CONFIG_STMMAC_ETH=y
 # The three TC956X symbols come from the board's patch series (linux/patches/).
 CONFIG_TOSHIBA_TC956X_PCI=m

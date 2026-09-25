@@ -75,11 +75,12 @@ work/  out/                          源码树工作区 / 成品
   所以 vfat 分区在 fstab 里 fsck 序号为 2，引擎会装 dosfstools（`install_filesystem_tools`）。
 - **内核源码树每次构建都 `git clean`**（内核 O= 树外编译，安全）：板子补丁新增的文件不会残留到下一块板；
   U-Boot 树只 `checkout`，因为它树内编译、`SKIP_BUILD=1` 要复用产物。
-- **Dragon Q8B**：70 个补丁在 `boards/dragon-q8b/linux/patches`（来源与刷新记录见同目录 README）。镜像只跑 EL2：
+- **Dragon Q8B**：75 个补丁在 `boards/dragon-q8b/linux/patches`（来源与刷新记录见同目录 README）。镜像只跑 EL2：
   DTB 是 `-el2.dtb`（`radxa,enable-kvm` 让固件进 EL2，`qcom,broken-reset` 让 qebspil 预启动 DSP、内核 attach）；
   qebspil 装在 ESP 的 `/EFI/systemd/drivers/`，DSP 固件复制到 ESP 的 `/firmware/`。BIOS 第三方兼容选项与
-  Hypervisor Override 须保持默认；`pd_ignore_unused` 不能去（否则 Wi-Fi 卡在 PCIe SMMU 上出故障）。
-  `DRM_MSM=m` 是有意的：内建会在根分区挂载前请求 GPU 固件而报错。组合 DTB（base + `.dtbo`）没有 `.dts`，
+  Hypervisor Override 须保持默认。Iris 在 EL2 下由内核自己加载固件（补丁 0071 + overlay 的 `video-firmware` 子节点）。
+  `DRM_MSM=m`、`EEPROM_AT24=y` 都是有意的：前者内建会在根分区挂载前请求 GPU 固件而报错，后者做成模块会让 PCIe（TC9563
+  的 pwrctrl 要从这块 EEPROM 读 MAC）一直延迟重试到 udev 起来。组合 DTB（base + `.dtbo`）没有 `.dts`，
   引擎按 Makefile 的 `-dtbs :=` 规则认它（`kernel_dtb_has_source`）。
 
 ## 验证手段

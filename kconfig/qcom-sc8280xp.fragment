@@ -38,7 +38,9 @@ CONFIG_QCOM_GENI_SE=y
 CONFIG_SERIAL_QCOM_GENI=y
 CONFIG_SERIAL_QCOM_GENI_CONSOLE=y
 CONFIG_QCOM_GPI_DMA=y
-CONFIG_I2C_QCOM_GENI=m
+# Built in, so that I2C devices a PCIe controller waits for (the Q8B's MAC
+# address EEPROM) can probe before the rootfs is mounted.
+CONFIG_I2C_QCOM_GENI=y
 CONFIG_SPI_QCOM_GENI=m
 
 # IOMMUs: SMMU-500 for most masters, SMMUv3 for PCIe once Linux owns it (EL2).

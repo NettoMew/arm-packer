@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam <i@noc.cat>
-Date: Fri, 25 Sep 2026 09:10:21 +0000
-Subject: [PATCH 66/70] driver core: fw_devlink: don't report refused
+Date: Fri, 25 Sep 2026 10:04:54 +0000
+Subject: [PATCH 66/75] driver core: fw_devlink: don't report refused
  sync_state()-only links
 
 When a supplier device appears after its consumer has bound,

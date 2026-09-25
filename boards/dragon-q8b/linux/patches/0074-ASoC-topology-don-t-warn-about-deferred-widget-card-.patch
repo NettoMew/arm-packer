@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam <i@noc.cat>
+Date: Fri, 25 Sep 2026 10:04:54 +0000
+Subject: [PATCH 74/75] ASoC: topology: don't warn about deferred widget card
+ binding
+
+A component that loads its topology from its probe callback does so
+while the card is being bound, before it is instantiated. The widgets
+are then created by snd_soc_bind_card() itself once all components have
+probed, which is the intended flow, yet soc_tplg_dapm_complete() warns
+about it on every boot:
+
+  snd-sc8280xp sound: ASoC: Parent card not yet available, widget card
+    binding deferred
+
+Every AudioReach platform takes this path. Report it at debug level.
+---
+ sound/soc/soc-topology.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/sound/soc/soc-topology.c b/sound/soc/soc-topology.c
+index 35cbe29..4c7d34f 100644
+--- a/sound/soc/soc-topology.c
++++ b/sound/soc/soc-topology.c
+@@ -1315,7 +1315,7 @@ static int soc_tplg_dapm_complete(struct soc_tplg *tplg)
+ 	 * If so, just return success.
+ 	*/
+ 	if (!snd_soc_card_is_instantiated(card)) {
+-		dev_warn(tplg->dev, "ASoC: Parent card not yet available, widget card binding deferred\n");
++		dev_dbg(tplg->dev, "ASoC: Parent card not yet available, widget card binding deferred\n");
+ 		return 0;
+ 	}
+ 

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam <i@noc.cat>
-Date: Fri, 25 Sep 2026 09:10:21 +0000
-Subject: [PATCH 67/70] remoteproc: qcom_sysmon: don't query a missing
+Date: Fri, 25 Sep 2026 10:04:54 +0000
+Subject: [PATCH 67/75] remoteproc: qcom_sysmon: don't query a missing
  shutdown-ack interrupt
 
 The shutdown-ack interrupt is optional, and the SC8280XP CDSP has none.

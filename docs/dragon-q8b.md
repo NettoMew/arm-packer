@@ -1,8 +1,8 @@
 # Radxa Dragon Q8B（Qualcomm SC8280XP）
 
 > 状态：**镜像只跑 EL2（KVM 可用），已在真板上从 NVMe 启动验证**。开机没有 err 级别的内核日志，
-> journal 里没有错误，也没有失败的服务。Wi-Fi/蓝牙（M.2 的 Intel AX210 系网卡）、声卡、GPU、双网口都正常。
-> 还没做的是 EL2 下的视频编解码，见文末。
+> journal 里没有错误，也没有失败的服务。Wi-Fi/蓝牙（M.2 的 Intel AX210 系网卡）、声卡、GPU、双网口、
+> Iris 硬件视频编解码（H.264/H.265）都正常。
 
 Dragon Q8B 是高通 Snapdragon 8cx Gen 3（SC8280XP）开发板。它的启动链是厂商签名的板载固件加 UEFI，
 构建器不编译、也不写入任何引导程序；镜像是一块 GPT 盘：EFI 系统分区（ESP）加 ext4 根分区，由
@@ -21,7 +21,7 @@ make dragon-q8b-dry                # 只看配置
 | 启动盘 | 标准 GPT + ESP；默认顺序 USB → SD → NVMe → UFS，逐个找 `\EFI\BOOT\BOOTAA64.EFI` | 512M ESP（`p1`）+ ext4 根（`p2`） |
 | 设备树 | UEFI 自带一份；启动项里的 `devicetree` 可换成系统自带的 | 启动项里写 `devicetree`，用本项目编出的 DTB |
 | 异常级别 | 默认在 Qualcomm 的 hypervisor 下以 EL1 启动；DTB 带 `/chosen/radxa,enable-kvm` 时固件改为 EL2 启动 | 只跑 EL2 |
-| 主线内核 | 7.2.7 里没有 Q8B 的 DTS；TC956x 网卡驱动还在上游审阅 | 打 70 个补丁（见下） |
+| 主线内核 | 7.2.7 里没有 Q8B 的 DTS；TC956x 网卡驱动还在上游审阅 | 打 75 个补丁（见下） |
 | 串口 | 40 针排针 Pin 6 GND、Pin 8 TXD、Pin 10 RXD；`ttyMSM0`，115200 | `board.conf` 里写死；DTS 补了 `stdout-path`，`earlycon` 可用 |
 | USB | 两个 Type-C 在 DTS 里都是 host | 不能当 One-KVM 的 USB 设备端 |
 
@@ -64,7 +64,7 @@ title      Debian 7.2.7 (Radxa Dragon Q8B)
 version    7.2.7
 linux      /arm-packer/7.2.7/Image
 devicetree /arm-packer/7.2.7/dtbs/qcom/sc8280xp-radxa-dragon-q8b-el2.dtb
-options    root=PARTUUID=… rootwait rw console=tty1 console=ttyMSM0,115200n8 earlycon clk_ignore_unused pd_ignore_unused efi=noruntime
+options    root=PARTUUID=… rootwait rw console=tty1 console=ttyMSM0,115200n8 earlycon clk_ignore_unused efi=noruntime
 ```
 
 ### EL2 是怎么起来的
@@ -72,7 +72,7 @@ options    root=PARTUUID=… rootwait rw console=tty1 console=ttyMSM0,115200n8 e
 1. 镜像用的 DTB 是 `sc8280xp-radxa-dragon-q8b-el2.dtb`：板子 DTB 加一个 overlay（补丁 0063，由 dts
    Makefile 的 `-dtbs :=` 规则组合；引擎的 `kernel_dtb_has_source` 认这种没有 `.dts` 的 DTB）。
    overlay 加 `/chosen/radxa,enable-kvm`、ADSP 与 CDSP 的 `qcom,broken-reset`、EL2 虚拟定时器中断
-   （PPI 12），并关掉 Iris。
+   （PPI 12），以及 Iris 的 `video-firmware` 子节点（固件自己的 IOMMU 流 `0x2a02`）。
 2. 固件看到 `radxa,enable-kvm` 就以 EL2 启动系统，并自己补上 EL2 需要的设备树改动：开启 PCIe 的
    SMMU 并给各 PCIe 控制器加 `iommu-map`，关掉 GPU 的 zap shader，给 SCM 节点加
    `qcom,shm-bridge-vmid = SELF_OWNER`。BIOS 的 “Hypervisor Override” 必须保持 Auto。
@@ -84,22 +84,30 @@ options    root=PARTUUID=… rootwait rw console=tty1 console=ttyMSM0,115200n8 e
    运行，由 remoteproc 核心 attach，而不是重新加载。
 5. 补丁 0064/0065（Stephan Gerhold）让 tzmem 读 `qcom,shm-bridge-vmid`，EL2 下以 self owner 方式建
    SHM bridge。
+6. Iris 也没法通过 PAS 启动：它的复位与 IOMMU 处理在这代芯片上由 EL1 的 hypervisor 负责。补丁 0071
+   （Stephan Gerhold 的 “media: iris: Port firmware loading without TZ/PAS from venus”）在有
+   `video-firmware` 子节点时由内核自己加载固件、在固件的 IOMMU 流里映射、解除视频核心的复位，
+   也就是 venus 驱动一直以来的做法。
 
 ### 板级（`boards/dragon-q8b/`）
 
-- **内核补丁**（`linux/patches/`，70 个）：Armbian `sc8280xp-edge` 系列（armbian/build `1443dbae`）
-  带到 7.2.7：删掉 7.2.7 已包含或已被上游替代的 5 个，刷新 2 个。另加 11 个，来源与理由逐个写在
+- **内核补丁**（`linux/patches/`，75 个）：Armbian `sc8280xp-edge` 系列（armbian/build `1443dbae`）
+  带到 7.2.7：删掉 7.2.7 已包含或已被上游替代的 5 个，刷新 2 个。另加 16 个，来源与理由逐个写在
   `linux/README.md`：
   - 0060 修 TC956x 网卡驱动在栈上未初始化的 IRQ 域参数（内核不自动清零栈时两个网口都起不来）；
-  - 0061–0065 是上面 EL2 用到的；
+  - 0061–0065 与 0071 是上面 EL2 用到的；
   - 0066–0069 去掉几条“把预期情况当错误打印”的日志：fw_devlink 的 sync_state 专用链接、sysmon 查询
     不存在的 CDSP shutdown-ack 中断、q6apm 把 DSP 就绪前的沉默当成命令失败、ACPI 核心在设备树平台上
     对没有 ACPI handle 的设备（iwlwifi、btintel）求值 `_DSM`；
-  - 0070 是主线 “drm/msm: mark the fbdev framebuffer as system memory” 的回移植。
+  - 0070 是主线 “drm/msm: mark the fbdev framebuffer as system memory” 的回移植，0072 是 ASoC 树已接受的
+    “lpass-{rx,wsa}-macro: sort reg_defaults before regmap init”；
+  - 0073–0075：AudioReach 音量控件名不再拼接 widget 名（否则超过 ALSA 的 44 字节被截断）、拓扑的延迟
+    绑定不再按 warning 打印、Adreno 的旧式 “vdd”/“vddcx” 电源改为可选获取。
 - **内核片段**：`kconfig/qcom-sc8280xp.fragment`（SoC）+ `boards/dragon-q8b/kernel.fragment`（TC956x
   网卡、CH7218A HDMI、音频 codec、RTC）。不用 initramfs，从上电到挂上根分区（含 NVMe）这一路全部
   内建。`DRM_MSM` 是模块：内建时 GPU 在根分区挂载前就请求固件，会报错；做成模块由 udev 在根分区挂好
-  后加载，EFI framebuffer 撑到那时。qcomtee 关掉：这块固件里的 QTEE 不响应内核的对象调用（EL1 下
+  后加载，EFI framebuffer 撑到那时。`EEPROM_AT24` 与 GENI I2C 内建：TC9563 的 pwrctrl 要从这块 EEPROM
+  读网口 MAC，做成模块时 PCIe 要一直延迟重试到 udev 起来。qcomtee 关掉：这块固件里的 QTEE 不响应内核的对象调用（EL1 下
   版本查询得 0.0.0，EL2 下直接 `-EINVAL`），镜像里也没有用它的程序。
 - **固件**（`firmware.lock`）：13 个文件和 2 个符号链接，按 commit 与 SHA-256 锁定，由引擎的
   `install_firmware_lock` 下载校验后装进 `/lib/firmware`：
@@ -110,9 +118,9 @@ options    root=PARTUUID=… rootwait rw console=tty1 console=ttyMSM0,115200n8 e
     `ibt-0041-0041` 蓝牙固件，均取自 linux-firmware；
   - wireless-regdb 的 `regulatory.db` 与签名。
   DTS 引用的 `qupv3fw.elf` 哪里都没有发布，UEFI 已把串行引擎配置好，内核用不到它。
-- **内核命令行**：`clk_ignore_unused pd_ignore_unused efi=noruntime`。`pd_ignore_unused` 不能去：去掉后
-  M.2 Wi-Fi 卡在 PCIe SMMU 上出翻译故障、随后 PCIe 致命错误、卡丢失（实测）；`clk_ignore_unused` 固件
-  自己也会加上；EFI 运行时服务固件支持不可靠。EL1 需要的 `arm64.nopauth` 在 EL2 下不需要，指针认证可用。
+- **内核命令行**：`clk_ignore_unused efi=noruntime`。`clk_ignore_unused` 固件在缺少时会自己加上；EFI 运行时
+  服务固件支持不可靠。`pd_ignore_unused` 不需要：SoC 依赖的 GDSC 在供应者 sync_state 之前一直保持
+  开启（去掉后连续重启 5 次、Wi-Fi 均正常）。EL1 需要的 `arm64.nopauth` 在 EL2 下不需要，指针认证可用。
 - **Wi-Fi 用户态**：`wpasupplicant` 与 `iw`，`/etc/network/interfaces` 里带 `wlan0` 模板
   （`lib/wifi.sh`，与 M28K、ROCK 5C 共用）。bluez 依赖 dbus，镜像不装；蓝牙固件照常加载，需要时
   `apt install bluez`。Debian 的 dhcpcd 设为 `background`，没插网线的网口不会卡 30 秒再报超时。
@@ -143,22 +151,25 @@ options    root=PARTUUID=… rootwait rw console=tty1 console=ttyMSM0,115200n8 e
   - `dmesg -l err` 与 `journalctl -p err` 都为空，没有失败的服务，`systemctl is-system-running` 为 running。
   - KVM 以 VHE 初始化，一个最小 KVM 程序在客户机里执行指令并按预期以 MMIO 退出；ADSP、CDSP
     `attached`；eth0 2.5 Gbps、DHCP、外网；iwlwifi 加载 API 89 固件并能扫描；蓝牙固件加载成功；
-    声卡（DP0–2 与耳机孔）；GPU `gpu-initialized: 1`；ESP 挂载前 fsck 通过。
-- 剩下的 warning（不是错误），都来自设备树描述、固件或上游驱动：
-  - `qcom-pcie … supply vdda/vddpe-3v3 not found` 与 `adreno … supply vdd/vddcx not found`：DTS 没写
-    这些供电，内核用占位 regulator；1c10000 那路因为 TC9563 的 pwrctrl 反复 probe 而重复出现。
-  - `arm-smmu-v3 … no priq irq`：PCIe SMMU 的 DT 节点没有 PRI 队列中断。
-  - `Zap shader not enabled`：EL2 下固件关掉了 zap shader，这是 EL2 的正常路径。
-  - `clk: Not disabling unused clocks`、`genpd: Not disabling unused power domains`：命令行的两个参数有意为之。
-  - `rx_macro … Unsorted reg_defaults`：上游驱动至今未修。
-  - `ASoC: Parent card not yet available` 与四条 `ALSA: Control name … truncated`：声卡按拓扑延迟绑定、
-    拓扑里的控件名超长。
+    声卡（DP0–2 与耳机孔，控件名不再截断）；GPU `gpu-initialized: 1`；ESP 挂载前 fsck 通过。
+  - Iris：GStreamer `v4l2h264enc`/`v4l2h265enc` 各编码 120 帧 1080p60，再从文件用 `v4l2h264dec`/
+    `v4l2h265dec` 解出全部 120 帧，画面与原图逐条色带一致，没有 IOMMU 故障。测试工具用后卸载，
+    系统的软件包与镜像完全一致。
+- 剩下的 warning（不是错误），修它们只能靠不正当的手段：
+  - `qcom-pcie … supply vdda not found` 与 1c10000 的 `vddpe-3v3`：SC8280XP 的 PCIe binding 里没有 vdda，
+    1c10000 下面是板载的 TC9563 而不是插槽，本就没有这路电；驱动的 2_7_0 供电处理被二十来个 SoC 共用，
+    缺失时用占位电源是上游的设计。1c10000 那路随每次延迟重试重复打印，EEPROM 内建后从 15 次降到 5 次。
+  - `arm-smmu-v3 … no priq irq`：PCIe SMMU 支持 PRI，但哪个 DT 都没有 PRI 队列中断号，不能猜；所有 PCIe
+    节点都没开 ATS，PRI 用不上。
+  - `Zap shader not enabled`：EL2 下固件关掉了 zap shader，上游 EL2 overlay 同样如此，这是 EL2 的正常路径。
+  - `clk: Not disabling unused clocks`：固件总会在命令行里加上 `clk_ignore_unused`。
 
 ## 下一步
 
 | 阶段 | 内容 |
 |---|---|
-| EL2 视频编解码 | EL2 下 Iris 起不来。社区方案是换回 venus 驱动（HFI6）配 Gen1 固件 `vpu20_p4.mbn` |
+| eth1 | 接上网线验证传输 |
+| Iris | 挂起/恢复与 VP9 解码的验证 |
 
 ## 风险与未验证项
 
@@ -167,6 +178,10 @@ options    root=PARTUUID=… rootwait rw console=tty1 console=ttyMSM0,115200n8 e
 - BIOS 兼容选项必须保持默认，否则 UEFI 会改写我们提供的 DTB。
 - DSP 崩溃后需要重启；风扇与 USB-C 都依赖 ADSP。EL2 下 DSP 由固件启动，内核不能重新加载它们。
 - eth1 只验证了识别，未接网线测传输。
+- Iris 的无 TZ 启动：固件 IOMMU 流 `0x2a02` 来自社区实测，不在官方 DT 里；绕过 TZ 意味着没有受保护内容
+  播放；补丁上游尚未合入，以后可能要换成 Linux 管 IOMMU、TZ 做鉴权的新接口。
+- GStreamer 的 V4L2 解码器只认它预设的色彩描述组合，`videotestsrc` 生成的旧式 BT.601 描述
+  （`2:4:5:4`）会协商失败；常见的 BT.709 视频不受影响。
 
 ## 参考
 

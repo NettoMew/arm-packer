@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam <i@noc.cat>
-Date: Fri, 25 Sep 2026 09:10:21 +0000
-Subject: [PATCH 68/70] ASoC: qcom: q6apm: don't report an unanswered SPF state
+Date: Fri, 25 Sep 2026 10:04:54 +0000
+Subject: [PATCH 68/75] ASoC: qcom: q6apm: don't report an unanswered SPF state
  query
 
 The DSP answers APM_CMD_GET_SPF_STATE only once its signal processing

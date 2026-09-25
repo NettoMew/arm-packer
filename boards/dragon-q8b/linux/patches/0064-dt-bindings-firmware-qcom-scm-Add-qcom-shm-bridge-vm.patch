@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stephan Gerhold <stephan@gerhold.net>
 Date: Sun, 26 Oct 2025 14:50:30 +0100
-Subject: [PATCH 64/70] dt-bindings: firmware: qcom,scm: Add
+Subject: [PATCH 64/75] dt-bindings: firmware: qcom,scm: Add
  qcom,shm-bridge-vmid
 
 Signed-off-by: Stephan Gerhold <stephan@gerhold.net>

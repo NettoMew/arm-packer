@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stephan Gerhold <stephan.gerhold@linaro.org>
 Date: Sun, 20 Jul 2025 16:15:54 +0200
-Subject: [PATCH 65/70] firmware: qcom: tzmem: Use "self owner" bits when
+Subject: [PATCH 65/75] firmware: qcom: tzmem: Use "self owner" bits when
  running in EL2
 
 It seems like the SHM bridge needs to use a different set of bits (the
@@ -22,7 +22,7 @@ Signed-off-by: Abel Vesa <abel.vesa@oss.qualcomm.com>
 [Adam: taken from radxa/kernel 88531b99bb52, where the subject carries a
  "wip:" prefix; applies to v7.2.7 unchanged. The Dragon Q8B firmware sets
  qcom,shm-bridge-vmid to QCOM_SCM_VMID_SELF_OWNER when it starts the OS at
- EL2; without this, QTEE calls fail there with -EINVAL.]
+ EL2, and the SHM bridges tzmem creates must follow it there.]
 ---
  drivers/firmware/qcom/qcom_tzmem.c | 26 +++++++++++++++++++++-----
  1 file changed, 21 insertions(+), 5 deletions(-)

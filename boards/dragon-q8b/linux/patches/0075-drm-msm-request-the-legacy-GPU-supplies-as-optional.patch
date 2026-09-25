@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam <i@noc.cat>
+Date: Fri, 25 Sep 2026 10:04:54 +0000
+Subject: [PATCH 75/75] drm/msm: request the legacy GPU supplies as optional
+
+msm_gpu_init() asks for "vdd" and "vddcx" supplies, which only the
+oldest Adrenos are wired to. No current binding describes them, and
+newer GPUs are powered through their power domains and the GMU, so on
+every such board the regulator core substitutes dummies and warns:
+
+  adreno 3d00000.gpu: supply vdd not found, using dummy regulator
+  adreno 3d00000.gpu: supply vddcx not found, using dummy regulator
+
+The driver already treats both as optional: it stores NULL when it
+cannot get them and checks for NULL before each use. Request them with
+devm_regulator_get_optional() so that a missing supply is simply absent.
+---
+ drivers/gpu/drm/msm/msm_gpu.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/msm_gpu.c b/drivers/gpu/drm/msm/msm_gpu.c
+index 03c0578..98a2f51 100644
+--- a/drivers/gpu/drm/msm/msm_gpu.c
++++ b/drivers/gpu/drm/msm/msm_gpu.c
+@@ -955,13 +955,13 @@ int msm_gpu_init(struct drm_device *drm, struct platform_device *pdev,
+ 	if (IS_ERR(gpu->ebi1_clk))
+ 		gpu->ebi1_clk = NULL;
+ 
+-	/* Acquire regulators: */
+-	gpu->gpu_reg = devm_regulator_get(&pdev->dev, "vdd");
++	/* Acquire regulators, which only the oldest Adrenos have: */
++	gpu->gpu_reg = devm_regulator_get_optional(&pdev->dev, "vdd");
+ 	DBG("gpu_reg: %p", gpu->gpu_reg);
+ 	if (IS_ERR(gpu->gpu_reg))
+ 		gpu->gpu_reg = NULL;
+ 
+-	gpu->gpu_cx = devm_regulator_get(&pdev->dev, "vddcx");
++	gpu->gpu_cx = devm_regulator_get_optional(&pdev->dev, "vddcx");
+ 	DBG("gpu_cx: %p", gpu->gpu_cx);
+ 	if (IS_ERR(gpu->gpu_cx))
+ 		gpu->gpu_cx = NULL;

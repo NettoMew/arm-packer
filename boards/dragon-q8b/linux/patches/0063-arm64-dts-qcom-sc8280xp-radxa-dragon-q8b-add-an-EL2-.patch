@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam <i@noc.cat>
-Date: Fri, 25 Sep 2026 09:10:21 +0000
-Subject: [PATCH 63/70] arm64: dts: qcom: sc8280xp-radxa-dragon-q8b: add an EL2
+Date: Fri, 25 Sep 2026 10:04:54 +0000
+Subject: [PATCH 63/75] arm64: dts: qcom: sc8280xp-radxa-dragon-q8b: add an EL2
  variant
 
 The Dragon Q8B firmware decides between EL1 and EL2 from the device tree
@@ -14,8 +14,10 @@ overlay also marks the ADSP and CDSP qcom,broken-reset. The qebspil UEFI
 driver starts remoteprocs carrying that property right before
 ExitBootServices(), and Linux attaches to them.
 
-Iris cannot load its firmware at EL2 either (the PAS call fails with
--EINVAL), so it is disabled there, as the X1 EL2 overlay does.
+Iris cannot load its firmware through PAS at EL2 either (the call fails
+with -EINVAL). The overlay gives it a "video-firmware" node with the
+firmware's own IOMMU stream, so the driver loads and starts the firmware
+itself.
 
 The SoC timer node lists only the four EL1 timer interrupts. At EL2 the
 kernel runs with VHE and wants the EL2 virtual timer as well, and warns
@@ -26,8 +28,8 @@ Build the result as sc8280xp-radxa-dragon-q8b-el2.dtb next to the
 regular board DTB, the same way as the ThinkPad X13s EL2 variant.
 ---
  arch/arm64/boot/dts/qcom/Makefile             |  3 +-
- .../qcom/sc8280xp-radxa-dragon-q8b-el2.dtso   | 46 +++++++++++++++++++
- 2 files changed, 48 insertions(+), 1 deletion(-)
+ .../qcom/sc8280xp-radxa-dragon-q8b-el2.dtso   | 49 +++++++++++++++++++
+ 2 files changed, 51 insertions(+), 1 deletion(-)
  create mode 100644 arch/arm64/boot/dts/qcom/sc8280xp-radxa-dragon-q8b-el2.dtso
 
 diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
@@ -46,10 +48,10 @@ index c4f2d61..d9ac034 100644
  dtb-$(CONFIG_ARCH_QCOM)	+= sdm450-motorola-ali.dtb
 diff --git a/arch/arm64/boot/dts/qcom/sc8280xp-radxa-dragon-q8b-el2.dtso b/arch/arm64/boot/dts/qcom/sc8280xp-radxa-dragon-q8b-el2.dtso
 new file mode 100644
-index 0000000..d406a6f
+index 0000000..be10c8a
 --- /dev/null
 +++ b/arch/arm64/boot/dts/qcom/sc8280xp-radxa-dragon-q8b-el2.dtso
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,49 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +/*
 + * Radxa Dragon Q8B at EL2.
@@ -61,8 +63,9 @@ index 0000000..d406a6f
 + *
 + * At EL2 Linux cannot start the DSPs through the PAS interface. The qebspil
 + * UEFI driver starts every remoteproc marked qcom,broken-reset just before
-+ * ExitBootServices(), and Linux attaches to them. Iris cannot load its
-+ * firmware at EL2 either and stays off there.
++ * ExitBootServices(), and Linux attaches to them. Iris cannot go through PAS
++ * either; with a "video-firmware" node the driver loads and starts its
++ * firmware itself.
 + */
 +
 +/dts-v1/;
@@ -85,8 +88,10 @@ index 0000000..d406a6f
 +};
 +
 +&iris {
-+	/* TODO: Add video-firmware iommus to start IRIS from EL2 */
-+	status = "disabled";
++	/* The firmware's own stream: Linux loads and starts it without TZ */
++	video-firmware {
++		iommus = <&apps_smmu 0x2a02 0x400>;
++	};
 +};
 +
 +&remoteproc_adsp {

@@ -43,15 +43,15 @@ v7.2.3) carried forward to v7.2.7:
   - 0063 builds `sc8280xp-radxa-dragon-q8b-el2.dtb`, the DTB the image
     boots: the board DTB plus `/chosen/radxa,enable-kvm`, which tells the
     firmware to start the OS at EL2, `qcom,broken-reset` on the ADSP and CDSP
-    for qebspil, and the EL2 virtual timer interrupt (PPI 12) VHE wants. Iris
-    is disabled there: it cannot load its firmware at EL2 (as on X1, whose
-    EL2 overlay does the same).
+    for qebspil, the EL2 virtual timer interrupt (PPI 12) VHE wants, and a
+    `video-firmware` node for Iris with the firmware's own IOMMU stream
+    (`0x2a02`), which 0071 uses to start it without PAS.
   - 0064 and 0065 are Stephan Gerhold's `qcom,shm-bridge-vmid` binding and
     the tzmem "self owner" SHM bridge, from radxa/kernel
     [`fe0fca8ddbca`](https://github.com/radxa/kernel/commit/fe0fca8ddbca28ee77ce0a3ea63eb9a2a4029539) and
     [`88531b99bb52`](https://github.com/radxa/kernel/commit/88531b99bb52195cd3e4af1ed5aefccb3e9c27e5).
     At EL2 the firmware sets `qcom,shm-bridge-vmid` to "self owner" in the
-    SCM node; without these, QTEE calls fail there with `-EINVAL`.
+    SCM node, and with these the SHM bridges tzmem creates follow it.
   - 0066 to 0069 silence log errors that are not errors: fw_devlink reporting
     sync_state()-only links it refuses by design (PMIC GLINK connectors),
     sysmon asking about the CDSP's shutdown-ack interrupt, which does not
@@ -62,6 +62,21 @@ v7.2.3) carried forward to v7.2.7:
   - 0070 is mainline's "drm/msm: mark the fbdev framebuffer as system
     memory" (`ea9dadeac79c`), backported. It stops the fbdev console's
     "framebuffer is not in virtual address space" warnings.
+  - 0071 is Stephan Gerhold's "media: iris: Port firmware loading without
+    TZ/PAS from venus", from radxa/kernel
+    [`395349af3be0`](https://github.com/radxa/kernel/commit/395349af3be0),
+    carried to v7.2.7. At EL2 the PAS service cannot start Iris on this SoC
+    (its reset and IOMMU handling live in the EL1 hypervisor); with a
+    `video-firmware` node the driver loads the firmware, maps it in the
+    firmware's IOMMU stream and releases the core from reset itself. The
+    port also releases that stream when probing fails later on.
+  - 0072 is Srinivas Kandagatla's "ASoC: codecs: lpass-{rx,wsa}-macro: sort
+    reg_defaults before regmap init", accepted into the ASoC tree.
+  - 0073 keeps the widget name out of AudioReach volume control names, which
+    otherwise exceed ALSA's 44-byte limit and get truncated; 0074 stops
+    warning about the deferred widget binding every topology loaded from a
+    component probe goes through; 0075 requests the legacy Adreno "vdd" and
+    "vddcx" supplies, which no current binding describes, as optional.
 
 To refresh the series for another kernel, apply it with `git am` on a worktree
 of the new tag, resolve, and export again with
@@ -136,3 +151,6 @@ of the new tag, resolve, and export again with
 | 0065 | (not in Armbian; radxa/kernel `88531b99bb52`) |
 | 0066–0069 | (not in Armbian; added here) |
 | 0070 | (not in Armbian; mainline `ea9dadeac79c`) |
+| 0071 | (not in Armbian; radxa/kernel `395349af3be0`) |
+| 0072 | (not in Armbian; ASoC tree, Srinivas Kandagatla) |
+| 0073–0075 | (not in Armbian; added here) |

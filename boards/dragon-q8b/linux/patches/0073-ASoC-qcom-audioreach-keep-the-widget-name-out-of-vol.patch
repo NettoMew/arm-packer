@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam <i@noc.cat>
+Date: Fri, 25 Sep 2026 10:04:54 +0000
+Subject: [PATCH 73/75] ASoC: qcom: audioreach: keep the widget name out of
+ volume control names
+
+DAPM names a PGA widget's controls "<widget name> <control name>". In an
+AudioReach topology the volume module's widget is called
+"stream0.vol_ctrl0" and its control "MultiMedia1 Playback Volume", so
+the result is 45 characters long and the ALSA core cuts it down to fit
+SNDRV_CTL_ELEM_ID_NAME_MAXLEN:
+
+  ALSA: Control name 'stream0.vol_ctrl0 MultiMedia1 Playback Volume'
+    truncated to 'stream0.vol_ctrl0 MultiMedia1 Playback Volu'
+
+The control name already says which stream it controls, so the widget
+prefix only adds noise. Set no_wname_in_kcontrol_name on the PGA widgets,
+as the SOF and avs topology loaders do, so that the control is simply
+"MultiMedia1 Playback Volume".
+---
+ sound/soc/qcom/qdsp6/topology.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/sound/soc/qcom/qdsp6/topology.c b/sound/soc/qcom/qdsp6/topology.c
+index 1f69fba..5b28a2e 100644
+--- a/sound/soc/qcom/qdsp6/topology.c
++++ b/sound/soc/qcom/qdsp6/topology.c
+@@ -900,6 +900,13 @@ static int audioreach_widget_load_pga(struct snd_soc_component *component,
+ 	mod = dobj->private;
+ 	mod->gain = VOL_CTRL_DEFAULT_GAIN;
+ 
++	/*
++	 * The control name ("MultiMedia1 Playback Volume") already says what it
++	 * controls; prefixed with the module's widget name ("stream0.vol_ctrl0")
++	 * it no longer fits SNDRV_CTL_ELEM_ID_NAME_MAXLEN and gets truncated.
++	 */
++	w->no_wname_in_kcontrol_name = true;
++
+ 	ret = snd_soc_tplg_widget_bind_event(w, audioreach_widget_ops,
+ 					     ARRAY_SIZE(audioreach_widget_ops),
+ 					     le16_to_cpu(tplg_w->event_type));
