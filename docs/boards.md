@@ -11,7 +11,7 @@
 | `m28k` `M28K_OLED=0` | Widora MangoPi M28K | RK3528 | `widora-mangopi-m28k-noscreen-…` | 无屏版：不装 OLED 用户态 |
 | `rock5c` | Radxa ROCK 5C | RK3588S2 / **RK3582** | `radxa-rock5c-…` | 纯主线；RK3582 默认开核 |
 | `opiz3` | Xunlong Orange Pi Zero 3 | **Allwinner H618** | `orangepi-zero3-…` | 全程开源无闭源 blob；针对 1GB 版 |
-| `dragon-q8b` | Radxa Dragon Q8B | **Qualcomm SC8280XP** | `radxa-dragon-q8b-…` | 板载 UEFI + systemd-boot，ESP + 根分区；EL1 |
+| `dragon-q8b` | Radxa Dragon Q8B | **Qualcomm SC8280XP** | `radxa-dragon-q8b-…` | 板载 UEFI + systemd-boot，ESP + 根分区；EL1 默认，EL2/KVM 启动项 |
 
 - **M28K 有屏 / 无屏**两版内核与 dtb 完全相同，区别仅在有屏版额外装了 OLED 仪表盘程序与开机自启脚本。
 - **opiz3** 是唯一的 Allwinner 板：用上游 `arm-trusted-firmware`（`PLAT=sun50i_h616`）现编 BL31，
@@ -20,9 +20,9 @@
   [allwinner.md](allwinner.md)。
 
 - **dragon-q8b** 是唯一的 Qualcomm 板：启动链是板载 SPI NOR 里的 EDK2 UEFI，构建器不编也不写引导程序。
-  镜像是 GPT 盘：512M ESP（systemd-boot、内核、dtb、BLS 启动项）加 ext4 根分区；内核打 60 个补丁
-  （来自 Armbian 的 sc8280xp-edge 系列），固件按 `boards/dragon-q8b/firmware.lock` 锁定。可从 USB、
-  microSD、NVMe 启动；UFS 需要 4K 扇区镜像，还没做。详见 [dragon-q8b.md](dragon-q8b.md)。
+  镜像是 GPT 盘：512M ESP（systemd-boot、内核、dtb、BLS 启动项）加 ext4 根分区；内核打 63 个补丁
+  （以 Armbian 的 sc8280xp-edge 系列为主），固件按 `boards/dragon-q8b/firmware.lock` 锁定。可从 USB、
+  microSD、NVMe 启动；菜单里另有一条 EL2 启动项（KVM）。详见 [dragon-q8b.md](dragon-q8b.md)。
 
 ## Radxa ROCK 5C 与 RK3582 开核 → [rk3582-unlock.md](rk3582-unlock.md)
 

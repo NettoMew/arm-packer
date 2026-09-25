@@ -16,7 +16,8 @@ board/vendor/distro 的 `if` 分支**——差异全在插件/配置里。加一
 ## 目录 / 职责
 ```
 scripts/build.sh    唯一入口(orchestrator)：解析 flags → 载 board.conf → 载 vendor+distro+hooks → 派生 → run_pipeline
-lib/log,env,deps,workspace,sources,kernel,image,rootfs,pipeline,aic8800.sh   引擎模块(distro/vendor 无关)
+lib/log,env,deps,workspace,sources,kernel,image,rootfs,wifi,pipeline.sh   引擎模块(distro/vendor 无关)
+lib/aic8800.sh lib/qebspil.sh        板子按需 source 的共享能力：AIC8800 驱动 / Qualcomm EL2 的 DSP 预启动 UEFI 驱动
 lib/vendor/{rockchip,allwinner,qcom}.sh   厂商插件(启动链)：vendor_* 契约
 lib/boot/{uboot,uefi}.sh             启动方式，由厂商插件 source：U-Boot + extlinux / 板载 UEFI + systemd-boot(ESP, BLS)
 lib/distro/{alpine,archlinux,debian,eweos}.sh   发行版插件(用户态)：distro_* 契约
@@ -33,7 +34,8 @@ work/  out/                          源码树工作区 / 成品
 - **board.conf**（纯赋值）必填：`BOARD_VENDOR BOARD_SOC BOARD_KERNEL_DTB BOARD_IMAGE_PREFIX
   BOARD_HOSTNAME BOARD_MENU_TITLE BOARD_SERIAL_CONSOLE` + 厂商要求的键（`vendor_required_keys`，
   U-Boot 厂商要 `BOARD_UBOOT_DEFCONFIG`）；选填 `BOARD_SERIAL_BAUD BOARD_KERNEL_CMDLINE_EXTRA
-  BOARD_SECOND_NIC BOARD_NICS BOARD_KERNEL_FRAGMENTS`。可选 `firmware.lock`（按 commit + SHA-256 锁固件）。
+  BOARD_SECOND_NIC BOARD_NICS BOARD_KERNEL_FRAGMENTS BOARD_BOOT_VARIANTS`（后者仅 UEFI：`名称=DTB`，多一条换 DTB 的启动项）。
+  可选 `firmware.lock`（按 commit + SHA-256 锁固件；`file`/`link`/`source`，URL 可用 `{path}` 占位）。
 - **vendor_\***（`lib/vendor/<vendor>.sh`）：`vendor_required_keys / _select_blobs / _default_fragments /
   _fetch_extra / _fetch_assert_skip / _assert_sources / _build_bootloader / _partition_table /
   _partition_layout / _write_bootloader / _install_boot / _firmware_extras / _env_summary`。
@@ -72,8 +74,10 @@ work/  out/                          源码树工作区 / 成品
   根分区，systemd-boot 读 BLS 启动项（内核、dtb 都在 ESP）。
 - **内核源码树每次构建都 `git clean`**（内核 O= 树外编译，安全）：板子补丁新增的文件不会残留到下一块板；
   U-Boot 树只 `checkout`，因为它树内编译、`SKIP_BUILD=1` 要复用产物。
-- **Dragon Q8B**：60 个补丁在 `boards/dragon-q8b/linux/patches`（来源与刷新记录见同目录 README）；
-  `DRM_MSM=y` 依赖 `QCOM_OCMEM` 不能是 m（片段里已处理）；BIOS 第三方兼容选项须保持默认。
+- **Dragon Q8B**：63 个补丁在 `boards/dragon-q8b/linux/patches`（来源与刷新记录见同目录 README）；
+  `DRM_MSM=y` 依赖 `QCOM_OCMEM` 不能是 m（片段里已处理）；BIOS 第三方兼容选项与 Hypervisor Override 须保持默认。
+  EL2 启动项 = 同一内核 + `-el2.dtb`（`radxa,enable-kvm` 让固件进 EL2，`qcom,broken-reset` 让 qebspil 预启动 DSP，
+  内核 attach）；qebspil 装在 ESP 的 `/EFI/systemd/drivers/`，DSP 固件复制到 ESP 的 `/firmware/`。默认仍是 EL1。
 
 ## 验证手段
 - 改完先 `bash -n` 全部脚本 + 各板 `--dry-run`（看 vendor/SoC、分区表、片段列表与顺序、钩子、镜像名、IMAGE_SIZE）。

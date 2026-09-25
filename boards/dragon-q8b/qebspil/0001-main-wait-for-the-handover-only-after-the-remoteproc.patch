@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam <i@noc.cat>
+Date: Fri, 25 Sep 2026 15:38:52 +0800
+Subject: [PATCH] main: wait for the handover only after the remoteprocs
+ started
+
+efi_late_ebs() returned as soon as pil_finish_all() succeeded and only
+reached the handover delay when starting the remoteprocs had failed.
+The delay itself was 500 seconds, not the intended half second: Stall()
+counts microseconds.
+
+Return the error when starting fails, and otherwise give the remoteprocs
+500 ms to finish their handover before ExitBootServices() completes.
+---
+ src/main.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/main.c b/src/main.c
+index 8262564..d77c8c8 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -17,15 +17,15 @@ static EFI_STATUS efi_late_ebs(void)
+ 
+ 	status = pil_finish_all();
+ 	if (status == EFI_NOT_FOUND)
+-		return EFI_SUCCESS; /* No rempteprocs found */
+-	if (!EFI_ERROR(status))
++		return EFI_SUCCESS; /* No remoteprocs found */
++	if (EFI_ERROR(status))
+ 		return status;
+ 
+ 	/*
+ 	 * Wait a bit to let remoteprocs finish handover.
+ 	 * FIXME: Wait for the SMP2P signals instead
+ 	 */
+-	return BS->Stall(500 * 1000 * 1000);
++	return BS->Stall(500 * 1000);
+ }
+ 
+ static EFI_STATUS efi_dtb_changed(void)

@@ -10,14 +10,16 @@
   BOARD_HOSTNAME BOARD_MENU_TITLE BOARD_SERIAL_CONSOLE`，再加厂商启动方式要求的键
   （`vendor_required_keys`，U-Boot 厂商要 `BOARD_UBOOT_DEFCONFIG`，UEFI 厂商不要）；选填
   `BOARD_SERIAL_BAUD BOARD_KERNEL_CMDLINE_EXTRA BOARD_SECOND_NIC BOARD_NICS BOARD_KERNEL_FRAGMENTS`。
-  板目录里可放 `firmware.lock`：按 commit 与 SHA-256 锁定的固件清单，引擎逐个下载校验后装进 `/lib/firmware`。
+  板目录里可放 `firmware.lock`：按 commit 与 SHA-256 锁定的固件清单，引擎逐个下载校验后装进 `/lib/firmware`；
+  `link` 行对应 linux-firmware WHENCE 的 `Link:`，`source` URL 里的 `{path}` 用于只能靠查询参数锁版本的地址。
 - **vendor_\***（`lib/vendor/<vendor>.sh`，启动链）：`vendor_required_keys / _select_blobs /
   _default_fragments / _fetch_extra / _fetch_assert_skip / _assert_sources / _build_bootloader /
   _partition_table / _partition_layout / _write_bootloader / _install_boot / _firmware_extras /
   _env_summary`。启动方式由厂商 source 的 `lib/boot/*.sh` 提供：
   - `lib/boot/uboot.sh`：U-Boot 取源/构建，内核与 dtb 放 `/boot`，写 `extlinux.conf`（rockchip、allwinner）。
   - `lib/boot/uefi.sh`：板载 UEFI，systemd-boot（Debian 包锁版本与 SHA-256）装进 ESP，
-    内核与 dtb 放 ESP，写 BLS 启动项（qcom）。
+    内核与 dtb 放 ESP，写 BLS 启动项（qcom）。`BOARD_BOOT_VARIANTS="名称=DTB …"` 为每个变体多写一条
+    启动项（同内核、同命令行、换 DTB），默认项仍是普通那条。
   - `vendor_partition_layout` 每行一个分区 `名称 大小 文件系统 挂载点`，`rest` 取剩余；
     `IMAGE_SIZE` 只算根分区，ESP 等另加。
 - **distro_\***（`lib/distro/<distro>.sh`，用户态）：`distro_prepare / _bootstrap_rootfs /
@@ -42,7 +44,9 @@ lib/                          # 引擎模块（无 board/vendor/distro 分支）
   log/env/deps/workspace/     #   日志、旋钮+派生路径、依赖、工作区
   sources/kernel/             #   取源(+定镜像名)、内核(片段合并)
   image/rootfs/pipeline.sh    #   镜像分区/写引导、共享 rootfs 落地、run_pipeline + 钩子分派
+  wifi.sh                     #   Wi-Fi/BT 用户态（wpa_supplicant 模板 + wlan0 + 服务），各带无线的板共用
   aic8800.sh                  #   AIC8800 Wi-Fi/BT 驱动能力（m28k SDIO / rock5c USB 共用）
+  qebspil.sh                  #   qebspil：EL2 启动前预启动 Qualcomm DSP 的 UEFI 驱动（dragon-q8b）
   kernel-update.sh            #   独立工作区、检查/编译报告、默认版本更新检查
   vendor/rockchip.sh          #   rkbin blob / u-boot-rockchip.bin@s64 / GPT / Panthor 固件
   vendor/allwinner.sh         #   现编 ATF BL31 / u-boot-sunxi-with-spl.bin@8KiB / MBR
@@ -60,7 +64,7 @@ boards/m28k/                  #   有屏 M28K：hooks.sh + kernel.fragment + 注
     kernel.fragment           #     板级内核片段（SSD130X + wifi/bt core）
     {uboot,linux,aic8800,oled,files}/   # DTS/补丁/固件移植/OLED 源/开机脚本
 boards/rock5c/                #   hooks.sh（RK3582 开核 + AIC8800 USB）+ uboot/aic8800 补丁
-boards/dragon-q8b/            #   board.conf + hooks.sh + kernel.fragment + firmware.lock + linux/patches（60 个）
+boards/dragon-q8b/            #   board.conf + hooks.sh + kernel.fragment + firmware.lock + linux/patches（63 个）+ qebspil/ 补丁
 # e20c / opiz3 纯主线，只有 board.conf，无 hooks/注入源
 kconfig/                      # 可组合内核片段 + distro-arm64.config 基线（见 kconfig/README.md）
 resources/rootfs/             # 固定 rootfs 文件（resize 脚本、wpa 模板、interfaces 基底）

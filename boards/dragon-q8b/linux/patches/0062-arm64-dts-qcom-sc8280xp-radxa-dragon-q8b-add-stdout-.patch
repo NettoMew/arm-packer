@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam <i@noc.cat>
+Date: Fri, 25 Sep 2026 08:05:01 +0000
+Subject: [PATCH 62/63] arm64: dts: qcom: sc8280xp-radxa-dragon-q8b: add
+ stdout-path
+
+The board DTS names uart17 as serial0 but has no /chosen node, so a bare
+"earlycon" on the command line finds no console and prints nothing.
+
+Point stdout-path at serial0, the 40-pin header UART the board firmware
+also uses, as the other SC8280XP boards do.
+---
+ arch/arm64/boot/dts/qcom/sc8280xp-radxa-dragon-q8b.dts | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sc8280xp-radxa-dragon-q8b.dts b/arch/arm64/boot/dts/qcom/sc8280xp-radxa-dragon-q8b.dts
+index 35c0a62..b7aa46f 100644
+--- a/arch/arm64/boot/dts/qcom/sc8280xp-radxa-dragon-q8b.dts
++++ b/arch/arm64/boot/dts/qcom/sc8280xp-radxa-dragon-q8b.dts
+@@ -26,6 +26,10 @@
+ 		serial1 = &uart2;
+ 	};
+ 
++	chosen {
++		stdout-path = "serial0:115200n8";
++	};
++
+ 	wcd938x: audio-codec {
+ 		compatible = "qcom,wcd9385-codec";
+ 

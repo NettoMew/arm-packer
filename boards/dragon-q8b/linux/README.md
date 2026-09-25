@@ -23,11 +23,28 @@ v7.2.3) carried forward to v7.2.7:
     connector's `edid_read` path updates the connector itself, and nothing else
     references the function.
 
-- **Added here:** 0060 zero-initialises the IRQ domain info that the TC956x
-  eMAC driver (Armbian 0028) builds on the stack. Without it, a kernel built
-  with `CONFIG_INIT_STACK_NONE` hands `__irq_domain_create()` a garbage
-  `direct_max`, both eMACs fail to probe with `-EINVAL`, and the board has no
-  wired network. Kernels that zero the stack automatically hide the bug.
+- **Added here:**
+  - 0060 zero-initialises the IRQ domain info that the TC956x eMAC driver
+    (Armbian 0028) builds on the stack. Without it, a kernel built with
+    `CONFIG_INIT_STACK_NONE` hands `__irq_domain_create()` a garbage
+    `direct_max`, both eMACs fail to probe with `-EINVAL`, and the board has
+    no wired network. Kernels that zero the stack automatically hide the bug.
+  - 0061 lets the PAS remoteproc driver attach to a DSP the boot firmware
+    already started (qebspil, for the EL2 entry), found through its SMP2P
+    state. It is Radxa's
+    [`7bf1919dfc5e`](https://github.com/radxa/kernel/commit/7bf1919dfc5e873808f48231156aa12b64d926cc)
+    from their 7.0 tree, author kept. v7.2.7's `qcom_pas_attach()` already
+    checks the fatal, stop and ready states itself, so only the probe-time
+    detection and the load and shutdown guards are carried. A DSP that is not
+    running has published no SMP2P entry (`-ENODEV`); that now counts as "not
+    preloaded" without a warning on every EL1 boot.
+  - 0062 gives the board DTS a `/chosen/stdout-path`, so a bare `earlycon`
+    finds the header UART.
+  - 0063 builds `sc8280xp-radxa-dragon-q8b-el2.dtb`: the board DTB plus
+    `/chosen/radxa,enable-kvm`, which tells the firmware to start the OS at
+    EL2, and `qcom,broken-reset` on the ADSP and CDSP for qebspil. Iris is
+    disabled there: it cannot load its firmware at EL2 (as on X1, whose EL2
+    overlay does the same).
 
 To refresh the series for another kernel, apply it with `git am` on a worktree
 of the new tag, resolve, and export again with
@@ -95,3 +112,6 @@ of the new tag, resolve, and export again with
 | 0058 | `0062-arm64-dts-qcom-sc8280xp-add-complete-thermal-zones.patch` |
 | 0059 | `0064-net-stmmac-tc956x-select-MAC-speed-before-PMA-init.patch` |
 | 0060 | (not in Armbian; added here) |
+| 0061 | (not in Armbian; radxa/kernel `7bf1919dfc5e`) |
+| 0062 | (not in Armbian; added here) |
+| 0063 | (not in Armbian; added here) |

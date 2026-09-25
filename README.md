@@ -56,7 +56,7 @@ xz -dc out/<镜像>.img.xz | sudo dd of=/dev/sdX bs=4M conv=fsync iflag=fullbloc
 | `m28k` | Widora MangoPi M28K | RK3528 | AIC8800 Wi-Fi6/BT，OLED 仪表盘 |
 | `rock5c` | Radxa ROCK 5C | RK3588S2 / RK3582 | RK3582 开核 → 7 核 + Mali-G610，NVMe，AIC8800 USB Wi-Fi |
 | `opiz3` | Orange Pi Zero 3 | Allwinner H618 | 全程开源无闭源 blob，Mali-G31 |
-| `dragon-q8b` | Radxa Dragon Q8B | Qualcomm SC8280XP | 板载 UEFI + systemd-boot，双 2.5GbE，NVMe/UFS，Adreno 690 |
+| `dragon-q8b` | Radxa Dragon Q8B | Qualcomm SC8280XP | 板载 UEFI + systemd-boot，EL2/KVM 启动项，双 2.5GbE，NVMe，Adreno 690 |
 
 ## 文档
 

@@ -1,8 +1,9 @@
 # boards/dragon-q8b/firmware.lock — every firmware file the Dragon Q8B needs,
 # pinned by commit and SHA-256 (installed by install_firmware_lock, lib/rootfs.sh).
 #
-#   source NAME BASE_URL
+#   source NAME BASE_URL            ({path} in BASE_URL marks where PATH goes)
 #   file   NAME PATH-UNDER-/lib/firmware SHA256
+#   link   LINK TARGET              (as linux-firmware's WHENCE "Link:")
 #
 # The DSP pair comes from radxa-firmware, the build Radxa OS and Armbian ship: its
 # ADSP image carries Radxa's own service (fan control) on the same Qualcomm
@@ -12,6 +13,8 @@
 
 source linux-firmware https://gitlab.com/kernel-firmware/linux-firmware/-/raw/b0ce527562283ed11af6cd8195f4f00085ee2477
 source radxa-firmware https://raw.githubusercontent.com/radxa-pkg/radxa-firmware/6a9efd21ebd78d4dd73939fd3b6a7ff3ef8801ca/radxa-firmware-sc8280xp/lib/firmware
+source armbian-firmware https://raw.githubusercontent.com/armbian/firmware/d43ebe7df8eb218e30411554c1a660ac1c5ecbff
+source wireless-regdb https://git.kernel.org/pub/scm/linux/kernel/git/wens/wireless-regdb.git/plain/{path}?id=389b9b702cf9018e9a9078ccc4fa8eaae2e054e3
 
 # Adreno 690 (shares the A660 microcode) and its zap shader. The SoC is not fused,
 # so the ThinkPad X13s zap shader the DTS names works unchanged.
@@ -25,3 +28,22 @@ file linux-firmware qcom/vpu/vpu20_p4_gen2_s6.mbn 8d0931502da392529c4205226e8caf
 # Audio DSP (also runs the fan and the USB-C controller) and compute DSP.
 file radxa-firmware qcom/sc8280xp/radxa/dragon-q8b/qcadsp8280.mbn 0f7de9946934a7b47188c5f561209ddc335fc373f81224f5f71a7924d6bb949a
 file radxa-firmware qcom/sc8280xp/qccdsp8280.mbn 0ce2d97f27aaf6ad24796a596ca07c0a77d44c8a85f015078a5f377719130c60
+
+# AudioReach topology for the sound card: headphone jack and the three
+# DisplayPort sinks (armbian/firmware, "add Radxa Dragon Q8B audioreach topology").
+file armbian-firmware qcom/sc8280xp/SC8280XP-Radxa-Dragon-Q8B-tplg.bin 737787a3b6a52ff9b66e1f5208e98c6491180130ffbff4a770c40cca34f63ee6
+
+# Intel AX210-family card in the M.2 E-key slot (e.g. the Killer AX1675x):
+# iwlwifi at API 89, the only one this kernel accepts, plus its PNVM, and the
+# matching Bluetooth firmware.
+file linux-firmware intel/iwlwifi/iwlwifi-ty-a0-gf-a0-89.ucode 792478ef7752595525379a5068e2d47e310a2c344636b7df866c54746ced1dc0
+file linux-firmware intel/iwlwifi/iwlwifi-ty-a0-gf-a0.pnvm 9697e327f8171454b3c19b1ec9449753d5b934d4e91722f469616818a6d477b0
+link iwlwifi-ty-a0-gf-a0-89.ucode intel/iwlwifi/iwlwifi-ty-a0-gf-a0-89.ucode
+link iwlwifi-ty-a0-gf-a0.pnvm intel/iwlwifi/iwlwifi-ty-a0-gf-a0.pnvm
+file linux-firmware intel/ibt-0041-0041.sfi 2d891022ded1d2d8b208cc5b7632f3098c761ae099024de971e4158dd5681a9c
+file linux-firmware intel/ibt-0041-0041.ddc fe272982577efdc289cfe3e8bedafca607c0b7d6c9df1aab1880e22ef930d077
+
+# Wireless regulatory database (wireless-regdb master-2026-09-03), signed with
+# the keys cfg80211 has built in.
+file wireless-regdb regulatory.db 7e236caecd939c8ec98be4870bf30422f28ffef2565a38aaaa2d9ddabd0c2641
+file wireless-regdb regulatory.db.p7s 50332f0db09b8bcc719235ec4985c27377f2cc2f42abb7b5dcf951866c5a888a
