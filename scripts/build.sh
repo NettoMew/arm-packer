@@ -133,7 +133,7 @@ IMAGE_PATH="${OUTPUT_DIR}/${IMAGE_NAME:-${IMAGE_NAME_PREFIX}-pending.img}"
 vendor_select_blobs
 
 # Engine modules.
-for m in deps workspace sources kernel image rootfs pipeline kernel-update swupdate; do
+for m in deps workspace sources kernel image rootfs wifi pipeline kernel-update swupdate; do
   # shellcheck source=/dev/null
   source "${LIB_DIR}/${m}.sh"
 done

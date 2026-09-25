@@ -8,8 +8,8 @@
 AIC8800_REPO="${AIC8800_REPO:-${DEFAULT_AIC8800_REPO}}"
 AIC8800_COMMIT="${AIC8800_COMMIT:-${DEFAULT_AIC8800_COMMIT}}"
 AIC8800_DIR="${AIC8800_DIR:-${SRC_DIR}/aic8800}"
-# WIFI_USERSPACE_PACKAGES default + the install/enable/iface primitives are
-# distro-provided (lib/distro/<distro>.sh), so this driver layer is distro-agnostic.
+# The Wi-Fi/BT userspace on top of the driver lives in lib/wifi.sh, shared with
+# boards whose radio has an in-tree driver.
 
 # Clone/refresh the driver source and apply the per-bus mainline port patch.
 # Idempotent: checkout -- . then re-apply. Called from a board's inject_sources.
@@ -112,29 +112,4 @@ aic8800_install() {
     printf 'aic_load_fw\naic8800_fdrv\n' | run_sudo tee "${MOUNTPOINT_ROOT}/etc/modules-load.d/aic8800.conf" >/dev/null
   fi
   log "AIC8800 modules installed for kernel ${krel}; firmware in ${AIC8800_FW_DEST}."
-}
-
-# Online Wi-Fi/BT userspace (wpa_supplicant, bluez). Sets WIFI_USERSPACE_OK.
-aic8800_install_userspace() {
-  section "Installing Wi-Fi/BT userspace online (wpa_supplicant, bluez)"
-  if ! distro_install_pkgs "${WIFI_USERSPACE_PACKAGES}"; then
-    warn "Online install of Wi-Fi/BT userspace failed (no network?). Driver+firmware are still in the image; install '${WIFI_USERSPACE_PACKAGES}' after boot."
-    WIFI_USERSPACE_OK=0
-    return 0
-  fi
-  WIFI_USERSPACE_OK=1
-  log "Wi-Fi/BT userspace installed."
-}
-
-# wpa_supplicant credential template + wlan0 stanza + service enablement, all via
-# distro primitives so the board layer stays distro-agnostic.
-aic8800_configure_runtime() {
-  section "Configuring Wi-Fi/BT (credential template + services)"
-  # wpa_supplicant credential template (user fills SSID/PSK on first boot).
-  run_sudo mkdir -p "${MOUNTPOINT_ROOT}/etc/wpa_supplicant"
-  run_sudo cp "${RESOURCES_DIR}/rootfs/etc/wpa_supplicant/wpa_supplicant.conf" \
-    "${MOUNTPOINT_ROOT}/etc/wpa_supplicant/wpa_supplicant.conf"
-  distro_add_wifi_iface
-  [[ "${WIFI_USERSPACE_OK:-0}" == "1" ]] && distro_enable_services "wpa_supplicant bluetooth"
-  return 0
 }

@@ -58,5 +58,5 @@ board_inject_sources() {
 
 board_build_modules()     { aic8800_build; }
 board_install_modules()   { aic8800_install; }
-board_install_userspace() { aic8800_install_userspace; }
-board_configure_runtime() { aic8800_configure_runtime; }
+board_install_userspace() { wifi_install_userspace; }
+board_configure_runtime() { wifi_configure_runtime; }

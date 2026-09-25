@@ -68,31 +68,43 @@ write_fstab() {
 # boards/<board>/firmware.lock pins every firmware file the board needs:
 #   source NAME BASE_URL
 #   file   NAME PATH SHA256
-# PATH is relative to /lib/firmware and to the source's BASE_URL. Files are
-# cached by checksum in DOWNLOAD_DIR, so a rebuild downloads nothing.
+#   link   LINK TARGET
+# PATH is relative to /lib/firmware and to the source's BASE_URL, appended to it,
+# or put in its place when the URL holds {path} (for URLs that pin by a query).
+# LINK is a symlink under /lib/firmware to TARGET, which is relative to LINK's
+# directory. Files are cached by checksum in DOWNLOAD_DIR, so a rebuild
+# downloads nothing.
 install_firmware_lock() {
   local lock="${BOARD_ASSETS}/${BOARD}/firmware.lock"
   [[ -f "${lock}" ]] || return 0
   section "Installing pinned firmware (${lock#"${PROJECT_DIR}/"})"
   local -A base=()
-  local kind name path sum cached count=0
+  local kind name path sum url cached count=0 links=0
   while IFS=' ' read -r kind name path sum; do
     case "${kind}" in
       ''|'#'*) continue ;;
       source) base["${name}"]="${path}" ;;
       file)
         [[ -n "${base[${name}]:-}" ]] || fatal "firmware.lock: unknown source '${name}' for ${path}"
+        # A source URL either takes the path appended, or names its place as {path}.
+        url="${base[${name}]}"
+        if [[ "${url}" == *'{path}'* ]]; then url="${url//\{path\}/${path}}"; else url="${url}/${path}"; fi
         cached="${DOWNLOAD_DIR}/firmware/${sum}"
         if ! sha256_matches "${cached}" "${sum}"; then
-          aria2_download "${base[${name}]}/${path}" "${cached}" || fatal "Firmware download failed: ${path}"
+          aria2_download "${url}" "${cached}" || fatal "Firmware download failed: ${path}"
           sha256_matches "${cached}" "${sum}" || fatal "Firmware checksum mismatch: ${path}"
         fi
         run_sudo install -D -m 0644 "${cached}" "${MOUNTPOINT_ROOT}/lib/firmware/${path}"
         count=$((count + 1)) ;;
+      link)
+        # link LINK TARGET, as linux-firmware's WHENCE "Link:" (TARGET relative to LINK).
+        run_sudo mkdir -p "$(dirname "${MOUNTPOINT_ROOT}/lib/firmware/${name}")"
+        run_sudo ln -sfn "${path}" "${MOUNTPOINT_ROOT}/lib/firmware/${name}"
+        links=$((links + 1)) ;;
       *) fatal "firmware.lock: unknown directive '${kind}'" ;;
     esac
   done < "${lock}"
-  log "Installed ${count} pinned firmware file(s)."
+  log "Installed ${count} pinned firmware file(s) and ${links} link(s)."
 }
 
 install_gpu_userspace() {
