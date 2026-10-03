@@ -17,7 +17,7 @@ board/vendor/distro 的 `if` 分支**——差异全在插件/配置里。加一
 ```
 scripts/build.sh    唯一入口(orchestrator)：解析 flags → 载 board.conf → 载 vendor+distro+fs+hooks → 派生 → run_pipeline
 lib/log,env,deps,workspace,sources,kernel,image,rootfs,wifi,pipeline.sh   引擎模块(distro/vendor 无关)
-lib/aic8800.sh lib/qebspil.sh        板子按需 source 的共享能力：AIC8800 驱动 / Qualcomm EL2 的 DSP 预启动 UEFI 驱动
+lib/aic8800.sh                       板子按需 source 的共享能力：AIC8800 驱动
 lib/vendor/{rockchip,allwinner,qcom}.sh   厂商插件(启动链)：vendor_* 契约
 lib/boot/{uboot,uefi}.sh             启动方式，由厂商插件 source：U-Boot + extlinux / 板载 UEFI + systemd-boot(ESP, BLS)
 lib/distro/{alpine,archlinux,debian,eweos}.sh   发行版插件(用户态)：distro_* 契约
@@ -80,10 +80,13 @@ work/  out/                          源码树工作区 / 成品
   所以 vfat 分区在 fstab 里 fsck 序号为 2，引擎会装 dosfstools（`install_filesystem_tools`）。
 - **内核源码树每次构建都 `git clean`**（内核 O= 树外编译，安全）：板子补丁新增的文件不会残留到下一块板；
   U-Boot 树只 `checkout`，因为它树内编译、`SKIP_BUILD=1` 要复用产物。
-- **Dragon Q8B**：75 个补丁在 `boards/dragon-q8b/linux/patches`（来源与刷新记录见同目录 README）。镜像只跑 EL2：
-  DTB 是 `-el2.dtb`（`radxa,enable-kvm` 让固件进 EL2，`qcom,broken-reset` 让 qebspil 预启动 DSP、内核 attach）；
-  qebspil 装在 ESP 的 `/EFI/systemd/drivers/`，DSP 固件复制到 ESP 的 `/firmware/`。BIOS 第三方兼容选项与
-  Hypervisor Override 须保持默认。Iris 在 EL2 下由内核自己加载固件（补丁 0071 + overlay 的 `video-firmware` 子节点）。
+- **Dragon Q8B**：78 个补丁在 `boards/dragon-q8b/linux/patches`（来源与刷新记录见同目录 README）。镜像只跑 EL2：
+  DTB 是 `-el2.dtb`（`radxa,enable-kvm` 让固件进 EL2）；DSP 由 BIOS（≥260916，“Remoteproc firmware preload”
+  默认 Auto）在 EL2 下预启动、内核 attach，旧 BIOS 下没有 DSP。不要再往 ESP 装 qebspil：它会和 BIOS 的预启动
+  重复启动 DSP（崩溃或 DSP offline）。BIOS 第三方兼容选项与 Hypervisor Settings 须保持默认。风扇由 ADSP 上的
+  Radxa 服务驱动（补丁 0076–0078 的 `radxa_svc_glink`，hwmon `pwm1`）；固件全速与高温时的自动曲线都输出 0 占空，
+  这只风扇（Heatsink 6845B）会停转，所以 `files/etc/local.d/q8b-fan.start` 开机切手动、先 128 起转再定在 190。
+  Iris 在 EL2 下由内核自己加载固件（补丁 0071 + overlay 的 `video-firmware` 子节点）。
   `DRM_MSM=m`、`EEPROM_AT24=y` 都是有意的：前者内建会在根分区挂载前请求 GPU 固件而报错，后者做成模块会让 PCIe（TC9563
   的 pwrctrl 要从这块 EEPROM 读 MAC）一直延迟重试到 udev 起来。组合 DTB（base + `.dtbo`）没有 `.dts`，
   引擎按 Makefile 的 `-dtbs :=` 规则认它（`kernel_dtb_has_source`）。

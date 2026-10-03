@@ -1,0 +1,153 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam <i@noc.cat>
+Date: Sat, 3 Oct 2026 10:41:47 +0000
+Subject: [PATCH 78/78] platform: arm64: radxa-svc: query the service after
+ probe returns
+
+The service answers a request into a receive intent queued by the APPS
+side. rpmsg queues the default intents in announce_create(), which runs
+only after the driver's probe() has returned, so a request sent from
+probe() can be answered only once the remote asks for an intent.
+
+An ADSP started by the kernel, or by a UEFI driver right before
+ExitBootServices(), asks straight away. From BIOS 260916 on, the Dragon
+Q8B firmware instead hands Linux the ADSP its charger driver started
+during boot, and that ADSP does not ask while the request is pending.
+The version request in probe() times out after five seconds, probe
+fails and the channel is closed; the ADSP then closes PMIC_RTR as well,
+which takes USB-C (UCSI) down with it. A glink trace shows the intent
+request arriving only after the close.
+
+Read the service version and register the hwmon devices from a work
+item instead, once the intents are queued, and retry a timed-out
+version request up to three times. Cancel the work before the device
+is torn down.
+---
+ drivers/platform/arm64/radxa_svc_glink.c | 75 ++++++++++++++++--------
+ 1 file changed, 52 insertions(+), 23 deletions(-)
+
+diff --git a/drivers/platform/arm64/radxa_svc_glink.c b/drivers/platform/arm64/radxa_svc_glink.c
+index f8017cf..3b44091 100644
+--- a/drivers/platform/arm64/radxa_svc_glink.c
++++ b/drivers/platform/arm64/radxa_svc_glink.c
+@@ -21,12 +21,14 @@
+ #include <linux/spinlock.h>
+ #include <linux/string.h>
+ #include <linux/uaccess.h>
++#include <linux/workqueue.h>
+ 
+ #define RADXA_SVC_DEBUGFS_DIR		"radxa_svc_glink"
+ 
+ #define RADXA_SVC_MAGIC		0x58444152 /* "RADX" */
+ #define RADXA_SVC_VERSION	1
+ #define RADXA_SVC_TIMEOUT	msecs_to_jiffies(5000)
++#define RADXA_SVC_INIT_ATTEMPTS	3
+ 
+ #define RADXA_SVC_MAX_TX_PAYLOAD	64
+ #define RADXA_SVC_MAX_RX_PAYLOAD	2048
+@@ -270,6 +272,7 @@ struct radxa_svc_glink {
+ 	u32 tsens_sensor;
+ 	u32 pwm_channel;
+ 	u32 caps;
++	struct work_struct init_work;
+ 
+ 	atomic64_t tx_count;
+ 	atomic64_t rx_count;
+@@ -1904,11 +1907,55 @@ static int radxa_svc_hwmon_init(struct radxa_svc_glink *svc)
+ 	return PTR_ERR_OR_ZERO(svc->hwmon_dev);
+ }
+ 
+-static int radxa_svc_rpmsg_probe(struct rpmsg_device *rpdev)
++/*
++ * The service can only answer into a receive intent queued by this side, and
++ * rpmsg queues the default intents after probe returns. A DSP started by the
++ * kernel asks for an intent straight away; one the firmware preserves across
++ * ExitBootServices does not, so probing synchronously would time out. Query
++ * the service from a work item once the intents are in place.
++ */
++static void radxa_svc_init_work(struct work_struct *work)
+ {
++	struct radxa_svc_glink *svc = container_of(work, struct radxa_svc_glink,
++						   init_work);
+ 	struct radxa_svc_version_resp version = {};
++	int attempt, ret;
++
++	for (attempt = 1; attempt <= RADXA_SVC_INIT_ATTEMPTS; attempt++) {
++		ret = radxa_svc_get_version(svc, &version);
++		if (ret != -ETIMEDOUT)
++			break;
++		dev_warn(svc->dev, "service version request %d/%d timed out\n",
++			 attempt, RADXA_SVC_INIT_ATTEMPTS);
++	}
++	if (ret) {
++		dev_err(svc->dev, "failed to read service version: %d\n", ret);
++		return;
++	}
++
++	ret = radxa_svc_check_version(svc->dev, &version, &svc->caps);
++	if (ret)
++		return;
++
++	ret = radxa_svc_hwmon_init(svc);
++	if (ret) {
++		dev_err(svc->dev, "failed to register hwmon: %d\n", ret);
++		return;
++	}
++
++	ret = radxa_svc_sensor_hwmon_init(svc);
++	if (ret) {
++		dev_err(svc->dev, "failed to register sensor hwmon devices: %d\n",
++			ret);
++		return;
++	}
++
++	radxa_svc_debugfs_init(svc);
++}
++
++static int radxa_svc_rpmsg_probe(struct rpmsg_device *rpdev)
++{
+ 	struct radxa_svc_glink *svc;
+-	int ret;
+ 
+ 	svc = devm_kzalloc(&rpdev->dev, sizeof(*svc), GFP_KERNEL);
+ 	if (!svc)
+@@ -1920,29 +1967,10 @@ static int radxa_svc_rpmsg_probe(struct rpmsg_device *rpdev)
+ 	mutex_init(&svc->xfer_lock);
+ 	spin_lock_init(&svc->rsp_lock);
+ 	init_completion(&svc->rsp);
++	INIT_WORK(&svc->init_work, radxa_svc_init_work);
+ 
+ 	dev_set_drvdata(&rpdev->dev, svc);
+-
+-	ret = radxa_svc_get_version(svc, &version);
+-	if (ret)
+-		return dev_err_probe(&rpdev->dev, ret,
+-				     "failed to read service version\n");
+-
+-	ret = radxa_svc_check_version(&rpdev->dev, &version, &svc->caps);
+-	if (ret)
+-		return ret;
+-
+-	ret = radxa_svc_hwmon_init(svc);
+-	if (ret)
+-		return dev_err_probe(&rpdev->dev, ret,
+-				     "failed to register hwmon\n");
+-
+-	ret = radxa_svc_sensor_hwmon_init(svc);
+-	if (ret)
+-		return dev_err_probe(&rpdev->dev, ret,
+-				     "failed to register sensor hwmon devices\n");
+-
+-	radxa_svc_debugfs_init(svc);
++	schedule_work(&svc->init_work);
+ 
+ 	return 0;
+ }
+@@ -1952,6 +1980,7 @@ static void radxa_svc_rpmsg_remove(struct rpmsg_device *rpdev)
+ 	struct radxa_svc_glink *svc = dev_get_drvdata(&rpdev->dev);
+ 	unsigned long flags;
+ 
++	cancel_work_sync(&svc->init_work);
+ 	debugfs_remove_recursive(svc->debugfs_dir);
+ 
+ 	spin_lock_irqsave(&svc->rsp_lock, flags);

@@ -1,8 +1,9 @@
 # Radxa Dragon Q8B（Qualcomm SC8280XP）
 
-> 状态：**镜像只跑 EL2（KVM 可用），根文件系统是 ZFS，已在真板上从 NVMe 启动验证**。开机没有 err 级别的内核日志，
-> journal 里没有错误，也没有失败的服务。Wi-Fi/蓝牙（M.2 的 Intel AX210 系网卡）、声卡、GPU、双网口、
-> Iris 硬件视频编解码（H.264/H.265）都正常。
+> 状态：**镜像只跑 EL2（KVM 可用），根文件系统是 ZFS，已在真板上从 NVMe 启动验证**。需要 BIOS 260916 或更新
+> （DSP 由 BIOS 预启动）。BIOS 260818 下（当时用 qebspil）开机没有 err 级别的内核日志，Wi-Fi/蓝牙（M.2 的 Intel
+> AX210 系网卡）、声卡、GPU、双网口、Iris 硬件视频编解码（H.264/H.265）都正常；BIOS 260916 下 DSP、风扇定速、
+> USB-C、声卡正常，但 M.2 Wi-Fi 初始化失败（见“风险与未验证项”）。
 
 Dragon Q8B 是高通 Snapdragon 8cx Gen 3（SC8280XP）开发板。它的启动链是厂商签名的板载固件加 UEFI，
 构建器不编译、也不写入任何引导程序；镜像是一块 GPT 盘：EFI 系统分区（ESP）加一个 ZFS 池（`rpool`），由
@@ -21,7 +22,9 @@ make dragon-q8b-dry                # 只看配置
 | 启动盘 | 标准 GPT + ESP；默认顺序 USB → SD → NVMe → UFS，逐个找 `\EFI\BOOT\BOOTAA64.EFI` | 512M ESP（`p1`）+ ZFS 池（`p2`） |
 | 设备树 | UEFI 自带一份；启动项里的 `devicetree` 可换成系统自带的 | 启动项里写 `devicetree`，用本项目编出的 DTB |
 | 异常级别 | 默认在 Qualcomm 的 hypervisor 下以 EL1 启动；DTB 带 `/chosen/radxa,enable-kvm` 时固件改为 EL2 启动 | 只跑 EL2 |
-| 主线内核 | 7.2.7 里没有 Q8B 的 DTS；TC956x 网卡驱动还在上游审阅 | 打 75 个补丁（见下） |
+| DSP | EL2 下内核没法通过 PAS 启动 DSP；BIOS 260916 起由固件在 EL2 下预启动（Hypervisor Settings → “Remoteproc firmware preload”，默认 Auto） | 要求 BIOS ≥ 260916，内核 attach |
+| 风扇 | 由 ADSP 上的 Radxa 服务驱动；固件全速与高温时的自动曲线都输出 0 占空，Heatsink 6845B 在这时停转 | 开机切手动并定在 pwm1 190 |
+| 主线内核 | 7.2.7 里没有 Q8B 的 DTS；TC956x 网卡驱动还在上游审阅 | 打 78 个补丁（见下） |
 | 串口 | 40 针排针 Pin 6 GND、Pin 8 TXD、Pin 10 RXD；`ttyMSM0`，115200 | `board.conf` 里写死；DTS 补了 `stdout-path`，`earlycon` 可用 |
 | USB | 两个 Type-C 在 DTS 里都是 host | 不能当 One-KVM 的 USB 设备端 |
 
@@ -50,9 +53,6 @@ ESP 内容：
 ```
 EFI/BOOT/BOOTAA64.EFI                         systemd-boot
 EFI/systemd/systemd-bootaa64.efi
-EFI/systemd/drivers/qebspilaa64.efi           DSP 预启动驱动（见下）
-firmware/qcom/sc8280xp/radxa/dragon-q8b/qcadsp8280.mbn   给 qebspil 用的 ADSP 固件
-firmware/qcom/sc8280xp/qccdsp8280.mbn                    给 qebspil 用的 CDSP 固件
 loader/loader.conf                            default arm-packer-7.2.7.conf，timeout 3
 loader/entries/arm-packer-7.2.7.conf
 arm-packer/7.2.7/Image                        带 EFI stub
@@ -99,15 +99,18 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 
 1. 镜像用的 DTB 是 `sc8280xp-radxa-dragon-q8b-el2.dtb`：板子 DTB 加一个 overlay（补丁 0063，由 dts
    Makefile 的 `-dtbs :=` 规则组合；引擎的 `kernel_dtb_has_source` 认这种没有 `.dts` 的 DTB）。
-   overlay 加 `/chosen/radxa,enable-kvm`、ADSP 与 CDSP 的 `qcom,broken-reset`、EL2 虚拟定时器中断
-   （PPI 12），以及 Iris 的 `video-firmware` 子节点（固件自己的 IOMMU 流 `0x2a02`）。
+   overlay 加 `/chosen/radxa,enable-kvm`、EL2 虚拟定时器中断（PPI 12），以及 Iris 的 `video-firmware`
+   子节点（固件自己的 IOMMU 流 `0x2a02`）。
 2. 固件看到 `radxa,enable-kvm` 就以 EL2 启动系统，并自己补上 EL2 需要的设备树改动：开启 PCIe 的
    SMMU 并给各 PCIe 控制器加 `iommu-map`，关掉 GPU 的 zap shader，给 SCM 节点加
    `qcom,shm-bridge-vmid = SELF_OWNER`。BIOS 的 “Hypervisor Override” 必须保持 Auto。
-3. EL2 下内核没法通过 PAS 接口启动 DSP。systemd-boot 在菜单前自动加载 `EFI/systemd/drivers/` 里的
-   qebspil（[stephan-gh/qebspil](https://github.com/stephan-gh/qebspil)，锁在 `config/versions.conf`，带一个补丁，
-   见 `boards/dragon-q8b/qebspil/`）。它读启动项装进来的 DTB，在 `ExitBootServices()` 前启动带
-   `qcom,broken-reset` 的 DSP，固件从 ESP 的 `/firmware/` 按 DTB 的 `firmware-name` 取。
+3. EL2 下内核没法通过 PAS 接口启动 DSP，由 BIOS 代劳（260916 起）：Hypervisor Settings 里的
+   “Remoteproc firmware preload” 默认 Auto，以 EL2 启动系统时生效。BIOS 的充电驱动开机时就启动了 ADSP，
+   `ExitBootServices()` 时不再关掉它，而是留给 Linux（“preserving ADSP for Linux remoteproc handoff”），
+   同时启动 CDSP。ADSP 跑的是 BIOS 自带的固件（260916 的风扇服务版本 1.7），不是根文件系统里锁定的那份；
+   根文件系统里的 DSP 固件只在内核自己启动 DSP（EL1）时用到。
+   更早的 BIOS 在 EL2 下不启动 DSP；以前用来补这一步的 qebspil 不再装：它会和新 BIOS 的预启动重复启动 DSP，
+   结果是崩溃或 DSP offline。
 4. 内核补丁 0061（Radxa 的 “attach to preloaded firmware”）在 probe 时通过 SMP2P 状态发现 DSP 已在
    运行，由 remoteproc 核心 attach，而不是重新加载。
 5. 补丁 0064/0065（Stephan Gerhold）让 tzmem 读 `qcom,shm-bridge-vmid`，EL2 下以 self owner 方式建
@@ -119,8 +122,8 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 
 ### 板级（`boards/dragon-q8b/`）
 
-- **内核补丁**（`linux/patches/`，75 个）：Armbian `sc8280xp-edge` 系列（armbian/build `1443dbae`）
-  带到 7.2.7：删掉 7.2.7 已包含或已被上游替代的 5 个，刷新 2 个。另加 16 个，来源与理由逐个写在
+- **内核补丁**（`linux/patches/`，78 个）：Armbian `sc8280xp-edge` 系列（armbian/build `1443dbae`）
+  带到 7.2.7：删掉 7.2.7 已包含或已被上游替代的 5 个，刷新 2 个。另加 19 个，来源与理由逐个写在
   `linux/README.md`：
   - 0060 修 TC956x 网卡驱动在栈上未初始化的 IRQ 域参数（内核不自动清零栈时两个网口都起不来）；
   - 0061–0065 与 0071 是上面 EL2 用到的；
@@ -130,7 +133,23 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
   - 0070 是主线 “drm/msm: mark the fbdev framebuffer as system memory” 的回移植，0072 是 ASoC 树已接受的
     “lpass-{rx,wsa}-macro: sort reg_defaults before regmap init”；
   - 0073–0075：AudioReach 音量控件名不再拼接 widget 名（否则超过 ALSA 的 44 字节被截断）、拓扑的延迟
-    绑定不再按 warning 打印、Adreno 的旧式 “vdd”/“vddcx” 电源改为可选获取。
+    绑定不再按 warning 打印、Adreno 的旧式 “vdd”/“vddcx” 电源改为可选获取；
+  - 0076–0078 是风扇驱动，见下。
+- **风扇**：风扇接在 PMC8280C 的 LPG（经 MOS 管反相到 J6 的 PWM 脚），由 ADSP 上 Radxa 自己的服务按温度
+  调速，Linux 只能通过 glink 通道 `RADXA_SVC_ADSP_APPS` 下指令。
+  - 驱动是 Radxa 的 `radxa_svc_glink`（补丁 0076/0077，Xilin Wu），模块，由 udev 按通道名加载。hwmon
+    `radxa_svc_glink` 提供 `pwm1`（0–255）与 `pwm1_enable`：0 全速、1 手动、2 静音曲线、3 性能曲线。7.2.7
+    只有 ACPI 的 platform_profile，所以 Radxa 原来放在 platform_profile 里的两条曲线改由 `pwm1_enable`
+    的 2、3 选择。服务的其他传感器各注册成一个只读 hwmon，调试信息在 debugfs `radxa_svc_glink/`。
+  - 补丁 0078：服务只能把回复写进 Linux 预先给出的接收缓冲（glink intent），而 rpmsg 要等 probe 返回才
+    给出缓冲。内核（EL1）或 qebspil 新启动的 ADSP 下，原驱动在 probe 里同步读版本没有问题；BIOS 保留下来的
+    ADSP 却直到通道关闭才来要缓冲：5 秒后超时，通道关闭，ADSP 随之把 PMIC_RTR 也关了，USB-C 一起失效。
+    0078 把读版本与注册 hwmon 挪到工作队列（超时重试 3 次）。
+  - 定速：固件的全速（`pwm1_enable=0`，或手动 255）与高温时的自动曲线都让 LPG 输出 0 占空，这时
+    Heatsink 6845B 风扇反而停转（Radxa 确认 enable=0 停转在所有 Q8B 上都一样；满载时自动曲线会让板子
+    升到 95°C 后掉电）。Radxa 建议手动模式、pwm1 不超过 190。`files/etc/local.d/q8b-fan.start` 开机切
+    手动，先给 128 让风扇从静止起转，3 秒后定在 190（脚本里的 `SPEED` 可调低，最低 64；删掉文件则交回
+    固件曲线）。这是 OpenRC 的 local.d 脚本，systemd 发行版上由引擎转成 oneshot 单元，eweOS 上转成 dinit 服务。
 - **内核片段**：`kconfig/qcom-sc8280xp.fragment`（SoC）+ `boards/dragon-q8b/kernel.fragment`（TC956x
   网卡、CH7218A HDMI、音频 codec、RTC）。从上电到根盘（含 NVMe）这一路全部内建，initramfs 只管导入
   ZFS 池。`DRM_MSM` 是模块：内建时 GPU 在根文件系统挂载前就请求固件，会报错；做成模块由 udev 在根文件系统挂好
@@ -140,6 +159,7 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 - **固件**（`firmware.lock`）：13 个文件和 2 个符号链接，按 commit 与 SHA-256 锁定，由引擎的
   `install_firmware_lock` 下载校验后装进 `/lib/firmware`：
   - ADSP 与 CDSP 取 radxa-firmware（Radxa OS 与 Armbian 实际使用的构建，ADSP 里带风扇控制服务）；
+    EL2 下跑的是 BIOS 自带的 DSP 固件，这两份只在 EL1 下由内核加载；
   - GPU、zap shader、视频固件取 linux-firmware；
   - 声卡的 AudioReach 拓扑取 Armbian 的固件仓库（耳机孔与三路 DisplayPort）；
   - M.2 上的 Intel AX210 系网卡（如 Killer AX1675x）：iwlwifi API 89 固件与 PNVM（这个内核只认 89）、
@@ -158,7 +178,8 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 1. `xz -dc radxa-dragon-q8b-debian-*.img.xz | dd of=/dev/sdX bs=4M conv=fsync`，写到 U 盘、microSD 或 NVMe。
    写 NVMe 前先 `wipefs -a`（最好 `blkdiscard`）清掉整盘，盘尾的旧签名（例如旧 ZFS 池的标签）不会被
    2.5G 的镜像覆盖。
-2. BIOS 的 “Third-party OS Compatibility” 选项与 “Hypervisor Override” 保持默认。
+2. BIOS 要 260916 或更新（Radxa 下载页的 flat build，EDL 刷写），否则 EL2 下没有 DSP：风扇不受控、
+   没有声卡与 USB-C。BIOS 的 “Third-party OS Compatibility” 与 “Hypervisor Settings” 里的选项保持默认。
 3. 固件按 USB → SD → NVMe 的顺序找启动盘。要从 NVMe 启动，拔掉带系统的 SD 卡（或把它的
    `EFI/BOOT/BOOTAA64.EFI` 改名）。串口接 40 针排针 8/10 脚，115200。
 4. 首次开机把根分区与 ZFS 池扩到整盘，并生成本机的 SSH 主机密钥与 DHCP 客户端 DUID（所以每次新刷的系统
@@ -171,10 +192,20 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
   （`test-kernel`、`test-swupdate`、`test-image`）通过；opiz3 用新引擎重建并通过离线审计与 qemu
   开机测试（U-Boot 路径未回归）。
 - Q8B 镜像离线审计：分区、ESP 内容与构建产物逐字节一致、唯一的启动项与 EL2 DTB（与板子 DTB 的差异
-  恰好是上面几处）、qebspil 与 ESP 上的 DSP 固件、固件校验和与链接、内核配置与模块、fstab 的 ESP
-  fsck、dosfstools、dhcpcd、Wi-Fi 用户态且没有 dbus；池以只读方式导入核对池属性、数据集属性与
-  已导出状态，initramfs 解开核对只有 `spl.ko`/`zfs.ko`、导入工具齐全、hostid 与根文件系统一致。
-- 真板（BIOS 6.0.260818，Intel SSDPEKKW256G8 NVMe 启动）：
+  恰好是上面几处，没有 `qcom,broken-reset`）、ESP 上没有 `EFI/systemd/drivers` 与 DSP 固件、风扇驱动模块与
+  `rpmsg:RADXA_SVC_ADSP_APPS` 别名、`q8b-fan.start` 与它转成的已启用 `localcompat-q8b-fan.service`、
+  固件校验和与链接、内核配置与模块、fstab 的 ESP fsck、dosfstools、dhcpcd、Wi-Fi 用户态且没有 dbus；
+  池以只读方式导入核对池属性、数据集属性与已导出状态，initramfs 解开核对只有 `spl.ko`/`zfs.ko`、导入工具
+  齐全、hostid 与根文件系统一致。
+- 真板（BIOS 6.0.260916，NVMe 上的系统换上这次构建的 EL2 DTB、风扇模块与风扇脚本，ESP 上没有 qebspil）：
+  - `CPU: All CPU(s) started at EL2`，运行中的设备树没有 `qcom,broken-reset`，ADSP、CDSP 由 BIOS 预启动、
+    内核 `attached`；风扇服务版本 1.7（BIOS 自带的 ADSP 固件）。
+  - `radxa_svc_glink` 由 udev 按 rpmsg 别名加载（没有 modules-load.d），版本查询不超时；
+    `localcompat-q8b-fan.service` 跑完后风扇为手动 190（LPG 占空 10196 ns），实测在转。
+  - PMIC GLINK 保持连接，USB-C 的 `port0`/`port1` 都在；声卡在；没有失败的服务。
+  - 用 glink tracepoint 对比过修复前后：修复前风扇通道上 Linux 没有给出任何接收缓冲，ADSP 5 秒后才来要，
+    随后关掉 PMIC_RTR；修复后通道一打开 Linux 就给出 1K 的接收缓冲。
+- 真板（BIOS 6.0.260818，当时 DSP 由 qebspil 启动，Intel SSDPEKKW256G8 NVMe 启动）：
   - 固件跳过 SD 从 NVMe 启动 → qebspil 启动 ADSP/CDSP → `CPU: All CPU(s) started at EL2` →
     initramfs 加载 OpenZFS 2.3.9、导入 `rpool`、挂上 `rpool/ROOT/debian`，内核 6.3 秒 + 用户态 10.1 秒；
     首启把池扩到 238G，根数据集 217M（zstd 压缩比 4.98x）。第二次开机
@@ -202,6 +233,7 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 
 | 阶段 | 内容 |
 |---|---|
+| Wi-Fi | 查清 BIOS 260916 下 M.2 网卡初始化失败的原因（先把 DSP 预启动临时关掉对比一次） |
 | eth1 | 接上网线验证传输 |
 | Iris | 挂起/恢复与 VP9 解码的验证 |
 
@@ -209,8 +241,16 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 
 - 补丁系列跟着上游变：DTS、网卡驱动都还在审阅，锁定 7.2.x 跟 Armbian，DTS 进主线后逐个删除。
 - EL2 依赖固件对 `radxa,enable-kvm` 的处理；BIOS 升级若改了这一行为，镜像需要相应调整。
+- DSP 依赖 BIOS 260916 起的预启动；更早的 BIOS 下镜像没有 DSP（风扇不受控、没有声卡与 USB-C）。只在 260916
+  上验证过，Radxa 当前发布的是 260923。
+- **BIOS 260916 下 M.2 Wi-Fi 初始化失败**（这块板上已见到两次，BIOS 260818 下正常）：iwlwifi 加载
+  固件后报 “Master Disable Timed Out”，网卡对 IOVA `0xfeca1000` 的 DMA 读触发 SMMU 转换错误，随后 PCIe
+  致命错误、网卡从总线上消失，重新扫描也找不回来。原因待查：是 BIOS 的 DSP 预启动改了 `ExitBootServices()`
+  的流程，还是这版 BIOS 其他改动所致，还没有区分。
 - BIOS 兼容选项必须保持默认，否则 UEFI 会改写我们提供的 DTB。
 - DSP 崩溃后需要重启；风扇与 USB-C 都依赖 ADSP。EL2 下 DSP 由固件启动，内核不能重新加载它们。
+- 风扇定速 190 是 Radxa 的建议上限，也是这块板与 Heatsink 6845B 实测能维持转动的范围（pwm1 约 64–208）内；
+  固定转速不随温度变化，满载时的温度没有在 190 下测过。
 - eth1 只验证了识别，未接网线测传输。
 - Iris 的无 TZ 启动：固件 IOMMU 流 `0x2a02` 来自社区实测，不在官方 DT 里；绕过 TZ 意味着没有受保护内容
   播放；补丁上游尚未合入，以后可能要换成 Linux 管 IOMMU、TZ 做鉴权的新接口。
@@ -226,9 +266,11 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 - 上游 DTS 补丁串：<https://ratatoskr.run/linux-arm-msm/2026/09/17490306/t>
 - Armbian 支持：<https://github.com/armbian/build/pull/10215>
 - Radxa 固件包：<https://github.com/radxa-pkg/radxa-firmware>
-- Radxa 内核（PAS attach、tzmem self owner）：<https://github.com/radxa/kernel/tree/linux-7.0.11>
+- Radxa 内核（PAS attach、tzmem self owner、SVC GLINK 风扇驱动）：<https://github.com/radxa/kernel/tree/linux-7.0.11>
+- Radxa BIOS 说明（Hypervisor Settings）：<https://docs.radxa.com/en/dragon/q8b/low-level-dev/bios>
 - Armbian 固件仓库（音频拓扑）：<https://github.com/armbian/firmware>
 - linux-firmware：<https://gitlab.com/kernel-firmware/linux-firmware>
 - wireless-regdb：<https://git.kernel.org/pub/scm/linux/kernel/git/wens/wireless-regdb.git>
-- EL2 社区方案：<https://github.com/ctr54188/radxa-dragon-q8b-fixes>、<https://github.com/stephan-gh/qebspil>
+- EL2 社区方案（BIOS 260916 之前，用 qebspil）：<https://github.com/ctr54188/radxa-dragon-q8b-fixes>、
+  <https://github.com/stephan-gh/qebspil>
 - X13s 主线参考：<https://github.com/jhovold/linux/wiki/X13s>

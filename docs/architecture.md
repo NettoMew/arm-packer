@@ -61,7 +61,6 @@ lib/                          # 引擎模块（无 board/vendor/distro 分支）
   fs/zfs.sh                   #   根文件系统 ZFS：随内核编 OpenZFS 模块、构建机建池、initramfs 导入
   wifi.sh                     #   Wi-Fi/BT 用户态（wpa_supplicant 模板 + wlan0 + 服务），各带无线的板共用
   aic8800.sh                  #   AIC8800 Wi-Fi/BT 驱动能力（m28k SDIO / rock5c USB 共用）
-  qebspil.sh                  #   qebspil：EL2 启动前预启动 Qualcomm DSP 的 UEFI 驱动（dragon-q8b）
   kernel-update.sh            #   独立工作区、检查/编译报告、默认版本更新检查
   vendor/rockchip.sh          #   rkbin blob / u-boot-rockchip.bin@s64 / GPT / Panthor 固件
   vendor/allwinner.sh         #   现编 ATF BL31 / u-boot-sunxi-with-spl.bin@8KiB / MBR
@@ -79,7 +78,7 @@ boards/m28k/                  #   有屏 M28K：hooks.sh + kernel.fragment + 注
     kernel.fragment           #     板级内核片段（SSD130X + wifi/bt core）
     {uboot,linux,aic8800,oled,files}/   # DTS/补丁/固件移植/OLED 源/开机脚本
 boards/rock5c/                #   hooks.sh（RK3582 开核 + AIC8800 USB）+ uboot/aic8800 补丁
-boards/dragon-q8b/            #   board.conf + hooks.sh + kernel.fragment + firmware.lock + linux/patches（75 个）+ qebspil/ 补丁
+boards/dragon-q8b/            #   board.conf + hooks.sh + kernel.fragment + firmware.lock + linux/patches（78 个）+ files/（风扇定速）
 # e20c / opiz3 纯主线，只有 board.conf，无 hooks/注入源
 kconfig/                      # 可组合内核片段 + distro-arm64.config 基线（见 kconfig/README.md）
 resources/rootfs/             # 固定 rootfs 文件（resize 脚本、wpa 模板、interfaces 基底）

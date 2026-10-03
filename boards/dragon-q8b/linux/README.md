@@ -30,7 +30,7 @@ v7.2.3) carried forward to v7.2.7:
     `direct_max`, both eMACs fail to probe with `-EINVAL`, and the board has
     no wired network. Kernels that zero the stack automatically hide the bug.
   - 0061 lets the PAS remoteproc driver attach to a DSP the boot firmware
-    already started (qebspil, at EL2), found through its SMP2P
+    already started (at EL2, BIOS 260916 and later), found through its SMP2P
     state. It is Radxa's
     [`7bf1919dfc5e`](https://github.com/radxa/kernel/commit/7bf1919dfc5e873808f48231156aa12b64d926cc)
     from their 7.0 tree, author kept. v7.2.7's `qcom_pas_attach()` already
@@ -42,10 +42,10 @@ v7.2.3) carried forward to v7.2.7:
     finds the header UART.
   - 0063 builds `sc8280xp-radxa-dragon-q8b-el2.dtb`, the DTB the image
     boots: the board DTB plus `/chosen/radxa,enable-kvm`, which tells the
-    firmware to start the OS at EL2, `qcom,broken-reset` on the ADSP and CDSP
-    for qebspil, the EL2 virtual timer interrupt (PPI 12) VHE wants, and a
-    `video-firmware` node for Iris with the firmware's own IOMMU stream
-    (`0x2a02`), which 0071 uses to start it without PAS.
+    firmware to start the OS at EL2 (and, from BIOS 260916 on, to start the
+    DSPs for Linux to attach to), the EL2 virtual timer interrupt (PPI 12)
+    VHE wants, and a `video-firmware` node for Iris with the firmware's own
+    IOMMU stream (`0x2a02`), which 0071 uses to start it without PAS.
   - 0064 and 0065 are Stephan Gerhold's `qcom,shm-bridge-vmid` binding and
     the tzmem "self owner" SHM bridge, from radxa/kernel
     [`fe0fca8ddbca`](https://github.com/radxa/kernel/commit/fe0fca8ddbca28ee77ce0a3ea63eb9a2a4029539) and
@@ -77,6 +77,19 @@ v7.2.3) carried forward to v7.2.7:
     warning about the deferred widget binding every topology loaded from a
     component probe goes through; 0075 requests the legacy Adreno "vdd" and
     "vddcx" supplies, which no current binding describes, as optional.
+  - 0076 and 0077 are Xilin Wu's Radxa SVC GLINK driver, from radxa/kernel
+    [`aa86fe5bd57d`](https://github.com/radxa/kernel/commit/aa86fe5bd57df99ecf51c102fc265006a4fe4b63) and
+    [`f87cd1e7a6cf`](https://github.com/radxa/kernel/commit/f87cd1e7a6cf9e164ef1a34c846312f9055e3f29).
+    It talks to Radxa's service on the ADSP, which runs the fan, and exposes
+    fan control and the service's sensors through hwmon. v7.2.7 has only the
+    ACPI platform_profile class, so 0076 drops that interface and lets
+    `pwm1_enable` pick the firmware curve instead (2 quiet, 3 performance);
+    0077 is unchanged.
+  - 0078 reads the service version from a work item instead of from probe.
+    rpmsg queues the receive intents the reply needs only after probe
+    returns, and the ADSP the firmware preserves for Linux does not ask for
+    one, so the synchronous read timed out and the ADSP closed PMIC_RTR
+    (USB-C) along with the fan channel.
 
 To refresh the series for another kernel, apply it with `git am` on a worktree
 of the new tag, resolve, and export again with
@@ -154,3 +167,6 @@ of the new tag, resolve, and export again with
 | 0071 | (not in Armbian; radxa/kernel `395349af3be0`) |
 | 0072 | (not in Armbian; ASoC tree, Srinivas Kandagatla) |
 | 0073–0075 | (not in Armbian; added here) |
+| 0076 | (not in Armbian; radxa/kernel `aa86fe5bd57d`, adapted) |
+| 0077 | (not in Armbian; radxa/kernel `f87cd1e7a6cf`) |
+| 0078 | (not in Armbian; added here) |

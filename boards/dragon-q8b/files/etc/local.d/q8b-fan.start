@@ -1,0 +1,35 @@
+#!/bin/sh
+# Dragon Q8B fan: hold it at a fixed speed. The fan is run by Radxa's service
+# on the ADSP, which the radxa_svc_glink driver exposes as hwmon pwm1 (0-255)
+# and pwm1_enable (0 full speed, 1 manual, 2 quiet curve, 3 performance curve).
+#
+# The service's full speed, and its curves once the SoC runs hot, drive the
+# fan signal to 0 % duty, where the Heatsink 6845B fan stops; Radxa's advice is
+# manual mode with pwm1 190 at most. At 190 the fan keeps turning but may not
+# start from standstill, so it gets 128 for a few seconds first.
+# Lower SPEED (down to 64) for a quieter fan, or delete this file to leave the
+# fan to the firmware's curve.
+SPEED=190
+KICK=128
+
+hwmon=""
+i=0
+while [ "$i" -lt 30 ]; do
+	for d in /sys/class/hwmon/hwmon*; do
+		if [ "$(cat "$d/name" 2>/dev/null)" = radxa_svc_glink ]; then
+			hwmon=$d
+			break 2
+		fi
+	done
+	sleep 1
+	i=$((i + 1))
+done
+if [ -z "$hwmon" ]; then
+	echo "q8b-fan: no radxa_svc_glink hwmon; the ADSP needs BIOS 260916 or later" >&2
+	exit 1
+fi
+
+echo 1 > "$hwmon/pwm1_enable" &&
+	echo "$KICK" > "$hwmon/pwm1" &&
+	sleep 3 &&
+	echo "$SPEED" > "$hwmon/pwm1"
