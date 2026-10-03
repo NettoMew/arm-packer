@@ -1,9 +1,9 @@
 # Radxa Dragon Q8B（Qualcomm SC8280XP）
 
 > 状态：**镜像只跑 EL2（KVM 可用），根文件系统是 ZFS，已在真板上从 NVMe 启动验证**。需要 BIOS 260916 或更新
-> （DSP 由 BIOS 预启动）。BIOS 260818 下（当时用 qebspil）开机没有 err 级别的内核日志，Wi-Fi/蓝牙（M.2 的 Intel
-> AX210 系网卡）、声卡、GPU、双网口、Iris 硬件视频编解码（H.264/H.265）都正常；BIOS 260916 下 DSP、风扇定速、
-> USB-C、声卡正常，但 M.2 Wi-Fi 初始化失败（见“风险与未验证项”）。
+> （DSP 由 BIOS 预启动）与 20V、65W 以上的 PD 供电。开机没有 err 级别的内核日志，journal 里没有错误，也没有失败的
+> 服务。Wi-Fi/蓝牙（M.2 的 Intel AX210 系网卡）、声卡、USB-C、GPU、双网口、Iris 硬件视频编解码（H.264/H.265）
+> 与风扇定速都正常。
 
 Dragon Q8B 是高通 Snapdragon 8cx Gen 3（SC8280XP）开发板。它的启动链是厂商签名的板载固件加 UEFI，
 构建器不编译、也不写入任何引导程序；镜像是一块 GPT 盘：EFI 系统分区（ESP）加一个 ZFS 池（`rpool`），由
@@ -180,6 +180,9 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
    2.5G 的镜像覆盖。
 2. BIOS 要 260916 或更新（Radxa 下载页的 flat build，EDL 刷写），否则 EL2 下没有 DSP：风扇不受控、
    没有声卡与 USB-C。BIOS 的 “Third-party OS Compatibility” 与 “Hypervisor Settings” 里的选项保持默认。
+   供电用 20V、65W 以上的 USB-C PD 充电器直连（或 12–20V 的电源排针）。功率不够时 BIOS 阶段一切正常，
+   系统一加载驱动就掉电重启（XBL 日志里四颗 PMIC 报 `OVLO|UVLO`、`PON by SMPL`），任何系统都一样；
+   勉强能开机时，M.2 Wi-Fi 也会在初始化时出 PCIe 致命错误、从总线上消失。
 3. 固件按 USB → SD → NVMe 的顺序找启动盘。要从 NVMe 启动，拔掉带系统的 SD 卡（或把它的
    `EFI/BOOT/BOOTAA64.EFI` 改名）。串口接 40 针排针 8/10 脚，115200。
 4. 首次开机把根分区与 ZFS 池扩到整盘，并生成本机的 SSH 主机密钥与 DHCP 客户端 DUID（所以每次新刷的系统
@@ -197,12 +200,14 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
   固件校验和与链接、内核配置与模块、fstab 的 ESP fsck、dosfstools、dhcpcd、Wi-Fi 用户态且没有 dbus；
   池以只读方式导入核对池属性、数据集属性与已导出状态，initramfs 解开核对只有 `spl.ko`/`zfs.ko`、导入工具
   齐全、hostid 与根文件系统一致。
-- 真板（BIOS 6.0.260916，NVMe 上的系统换上这次构建的 EL2 DTB、风扇模块与风扇脚本，ESP 上没有 qebspil）：
-  - `CPU: All CPU(s) started at EL2`，运行中的设备树没有 `qcom,broken-reset`，ADSP、CDSP 由 BIOS 预启动、
-    内核 `attached`；风扇服务版本 1.7（BIOS 自带的 ADSP 固件）。
-  - `radxa_svc_glink` 由 udev 按 rpmsg 别名加载（没有 modules-load.d），版本查询不超时；
-    `localcompat-q8b-fan.service` 跑完后风扇为手动 190（LPG 占空 10196 ns），实测在转。
-  - PMIC GLINK 保持连接，USB-C 的 `port0`/`port1` 都在；声卡在；没有失败的服务。
+- 真板（BIOS 6.0.260916，65W PD 供电，镜像整盘写入东芝 KBG30ZPZ128G NVMe，回读 SHA-256 一致）：
+  - 首次开机把池扩到 119G；`CPU: All CPU(s) started at EL2`，ESP 上没有 qebspil，运行中的设备树没有
+    `qcom,broken-reset`，ADSP、CDSP 由 BIOS 预启动、内核 `attached`；风扇服务版本 1.7（BIOS 自带的 ADSP 固件）。
+  - `radxa_svc_glink` 由 udev 按 rpmsg 别名加载，版本查询不超时；`localcompat-q8b-fan.service` 跑完后
+    风扇为手动 190（LPG 占空 10196 ns），实测在转。
+  - PMIC GLINK 保持连接，USB-C 的 `port0`/`port1` 都在；声卡在；iwlwifi 加载 API 89 固件并扫到周围的
+    热点，蓝牙 `hci0` 在；GPU `gpu-initialized: 1`，Iris 的编解码设备都在；eth0 连上。
+  - `dmesg -l err` 与 `journalctl -p err` 都为空，没有失败的服务，`systemctl is-system-running` 为 running。
   - 用 glink tracepoint 对比过修复前后：修复前风扇通道上 Linux 没有给出任何接收缓冲，ADSP 5 秒后才来要，
     随后关掉 PMIC_RTR；修复后通道一打开 Linux 就给出 1K 的接收缓冲。
 - 真板（BIOS 6.0.260818，当时 DSP 由 qebspil 启动，Intel SSDPEKKW256G8 NVMe 启动）：
@@ -233,7 +238,6 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 
 | 阶段 | 内容 |
 |---|---|
-| Wi-Fi | 查清 BIOS 260916 下 M.2 网卡初始化失败的原因（先把 DSP 预启动临时关掉对比一次） |
 | eth1 | 接上网线验证传输 |
 | Iris | 挂起/恢复与 VP9 解码的验证 |
 
@@ -243,10 +247,9 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 - EL2 依赖固件对 `radxa,enable-kvm` 的处理；BIOS 升级若改了这一行为，镜像需要相应调整。
 - DSP 依赖 BIOS 260916 起的预启动；更早的 BIOS 下镜像没有 DSP（风扇不受控、没有声卡与 USB-C）。只在 260916
   上验证过，Radxa 当前发布的是 260923。
-- **BIOS 260916 下 M.2 Wi-Fi 初始化失败**（这块板上已见到两次，BIOS 260818 下正常）：iwlwifi 加载
-  固件后报 “Master Disable Timed Out”，网卡对 IOVA `0xfeca1000` 的 DMA 读触发 SMMU 转换错误，随后 PCIe
-  致命错误、网卡从总线上消失，重新扫描也找不回来。原因待查：是 BIOS 的 DSP 预启动改了 `ExitBootServices()`
-  的流程，还是这版 BIOS 其他改动所致，还没有区分。
+- 供电不足的症状容易被当成软件问题：一个功率不够的充电器先让 M.2 Wi-Fi 在初始化时出 PCIe 致命错误
+  （“Master Disable Timed Out”、SMMU 转换错误、网卡从总线上消失），负载再高时整板掉电循环重启。换成 65W
+  的 PD 充电器后，同一 BIOS、同一镜像都正常。
 - BIOS 兼容选项必须保持默认，否则 UEFI 会改写我们提供的 DTB。
 - DSP 崩溃后需要重启；风扇与 USB-C 都依赖 ADSP。EL2 下 DSP 由固件启动，内核不能重新加载它们。
 - 风扇定速 190 是 Radxa 的建议上限，也是这块板与 Heatsink 6845B 实测能维持转动的范围（pwm1 约 64–208）内；
