@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam <i@noc.cat>
+Date: Sat, 3 Oct 2026 15:57:32 +0000
+Subject: [PATCH 79/80] PCI: Avoid FLR and bus reset for the Toshiba TC956x Ethernet
+ functions
+
+The two Ethernet functions (1179:0220) of the Toshiba TC956x (Qualcomm
+QPS615) PCIe switch advertise FLR, but after one the function never
+becomes ready again. pci_dev_wait() gives up after 65 seconds, and on
+the Radxa Dragon Q8B (SC8280XP) the config write pci_dev_restore() then
+issues raises an asynchronous SError, which panics the machine.
+vfio-pci resets a device this way when it is opened, so handing either
+port to a guest took the host down.
+
+Mark the functions NO_FLR_RESET. Mark them NO_BUS_RESET as well, so
+that vfio-pci, finding no function reset, does not fall back to a
+secondary bus reset of the downstream port they sit behind. Whether the
+chip survives one has not been tested; a wrong guess costs the machine,
+and the device driver puts the chip into a known state when it probes.
+
+With no reset method left, both ports can be passed to a guest: the
+guest's driver comes up with a 2.5 Gb/s link, and the VM can be started
+and stopped repeatedly.
+---
+ drivers/pci/quirks.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
+index 0500d5f..d183c46 100644
+--- a/drivers/pci/quirks.c
++++ b/drivers/pci/quirks.c
+@@ -3811,6 +3811,13 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_TI, 0xb005, quirk_no_bus_reset);
+  */
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_ASMEDIA, 0x1164, quirk_no_bus_reset);
+ 
++/*
++ * The Ethernet functions of the Toshiba TC956x (QPS615) PCIe switch never
++ * become ready again after an FLR, and touching them afterwards takes the
++ * machine down. Keep vfio-pci from falling back to a bus reset as well.
++ */
++DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_TOSHIBA, 0x0220, quirk_no_bus_reset);
++
+ static void quirk_no_pm_reset(struct pci_dev *dev)
+ {
+ 	/*
+@@ -5613,6 +5620,7 @@ DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_AMD, 0x17f0, quirk_no_flr);
+ DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, 0x1502, quirk_no_flr);
+ DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, 0x1503, quirk_no_flr);
+ DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_MEDIATEK, 0x0616, quirk_no_flr);
++DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_TOSHIBA, 0x0220, quirk_no_flr); /* TC956x */
+ DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_MEDIATEK, 0x7925, quirk_no_flr);
+ 
+ /* FLR may cause the SolidRun SNET DPU (rev 0x1) to hang */

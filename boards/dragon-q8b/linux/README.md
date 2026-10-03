@@ -90,6 +90,14 @@ v7.2.3) carried forward to v7.2.7:
     returns, and the ADSP the firmware preserves for Linux does not ask for
     one, so the synchronous read timed out and the ADSP closed PMIC_RTR
     (USB-C) along with the fan channel.
+  - 0079 marks the TC956x Ethernet functions (`1179:0220`) NO_FLR_RESET and
+    NO_BUS_RESET. After an FLR a function never becomes ready again, and the
+    config write that follows raises an SError and panics the machine; vfio-pci
+    resets a device that way when a guest opens it. A bus reset was not tried.
+  - 0080 gives the TC956x's single used RX queue the whole 46KiB RX FIFO.
+    The driver split 32KiB over four queues, but every received frame lands in
+    queue 0, and 8KiB overflowed on line-rate bursts: a TCP stream into the port
+    ran under 100Mbit/s. It now reaches 2.25Gbit/s.
 
 To refresh the series for another kernel, apply it with `git am` on a worktree
 of the new tag, resolve, and export again with
@@ -170,3 +178,4 @@ of the new tag, resolve, and export again with
 | 0076 | (not in Armbian; radxa/kernel `aa86fe5bd57d`, adapted) |
 | 0077 | (not in Armbian; radxa/kernel `f87cd1e7a6cf`) |
 | 0078 | (not in Armbian; added here) |
+| 0079–0080 | (not in Armbian; added here) |

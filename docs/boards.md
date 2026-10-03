@@ -20,7 +20,7 @@
   [allwinner.md](allwinner.md)。
 
 - **dragon-q8b** 是唯一的 Qualcomm 板：启动链是板载 SPI NOR 里的 EDK2 UEFI，构建器不编也不写引导程序。
-  镜像是 GPT 盘：512M ESP（systemd-boot、内核、dtb、initramfs、BLS 启动项）加 ZFS 池；内核打 78 个补丁
+  镜像是 GPT 盘：512M ESP（systemd-boot、内核、dtb、initramfs、BLS 启动项）加 ZFS 池；内核打 80 个补丁
   （以 Armbian 的 sc8280xp-edge 系列为主），固件按 `boards/dragon-q8b/firmware.lock` 锁定。可从 USB、
   microSD、NVMe 启动；系统跑在 EL2，KVM 可用，DSP 需要 BIOS 260916 或更新。详见 [dragon-q8b.md](dragon-q8b.md)。
 

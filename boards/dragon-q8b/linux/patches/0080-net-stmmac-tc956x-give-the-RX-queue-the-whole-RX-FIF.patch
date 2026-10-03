@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam <i@noc.cat>
+Date: Sat, 3 Oct 2026 16:53:56 +0000
+Subject: [PATCH 80/80] net: stmmac: tc956x: give the RX queue the whole RX FIFO
+
+The driver split 32KiB of the 46KiB RX FIFO evenly over four RX queues.
+Nothing steers received frames across those queues, so every frame
+lands in queue 0 and has 8KiB of FIFO, which fills in about 26us at
+2.5Gb/s. The RX DMA does not drain line-rate bursts that fast. On the
+Radxa Dragon Q8B a single iperf3 TCP stream into the port overflowed
+the FIFO about ten thousand times in ten seconds; the PAUSE frames sent
+meanwhile did not prevent it, and TCP backed off to under 100Mbit/s.
+Four parallel streams reached 270Mbit/s.
+
+Use one RX queue and give it the whole RX FIFO. A single stream now
+reaches 2.25Gbit/s and four streams 2.31Gbit/s, with a handful of
+overflows across millions of frames. Transmit, which keeps its four
+queues of 8KiB, is unchanged at 2.2Gbit/s.
+---
+ drivers/net/ethernet/stmicro/stmmac/dwmac-tc956x.c | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/net/ethernet/stmicro/stmmac/dwmac-tc956x.c b/drivers/net/ethernet/stmicro/stmmac/dwmac-tc956x.c
+index ed01ba2..f7694d7 100644
+--- a/drivers/net/ethernet/stmicro/stmmac/dwmac-tc956x.c
++++ b/drivers/net/ethernet/stmicro/stmmac/dwmac-tc956x.c
+@@ -642,11 +642,12 @@ static int tc956x_plat_dat_init(struct tc956x_data *td)
+ 	plat->unicast_filter_entries = 32;
+ 
+ 	/*
+-	 * TC956x has 8 RX queues but we observe significantly reduced RX
+-	 * bandwidth if we don't have at least 8k FIFO space per queue, so
+-	 * by default we avoid using all the queues.
++	 * TC956x has 8 RX queues, but nothing steers received frames across
++	 * them: every frame lands in queue 0. Use that one queue and give it
++	 * the whole RX FIFO. A queue with 8KiB overflows on line-rate bursts
++	 * at 2.5G, and TCP then backs off to a fraction of the link speed.
+ 	 */
+-	plat->rx_queues_to_use = 4;
++	plat->rx_queues_to_use = 1;
+ 
+ 	/*
+ 	 * TC956x has 8 TX queues but only #0 to #3 work for general IP traffic.
+@@ -655,13 +656,12 @@ static int tc956x_plat_dat_init(struct tc956x_data *td)
+ 	plat->tx_queues_to_use = 4;
+ 
+ 	/*
+-	 * Oversized FIFOs result in reduced performance in bandwidth tests.
++	 * Oversized TX FIFOs result in reduced performance in bandwidth tests.
+ 	 * Limit them to 8KiB per queue, or the total available.
+ 	 */
+ 	plat->tx_fifo_size =
+ 		min(TC956X_TX_FIFO_KB, 8 * plat->tx_queues_to_use) * SZ_1K;
+-	plat->rx_fifo_size =
+-		min(TC956X_RX_FIFO_KB, 8 * plat->rx_queues_to_use) * SZ_1K;
++	plat->rx_fifo_size = TC956X_RX_FIFO_KB * SZ_1K;
+ 	plat->host_dma_width = 36;
+ 
+ 	plat->rx_sched_algorithm = MTL_RX_ALGORITHM_SP;

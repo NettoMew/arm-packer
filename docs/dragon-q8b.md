@@ -24,7 +24,7 @@ make dragon-q8b-dry                # 只看配置
 | 异常级别 | 默认在 Qualcomm 的 hypervisor 下以 EL1 启动；DTB 带 `/chosen/radxa,enable-kvm` 时固件改为 EL2 启动 | 只跑 EL2 |
 | DSP | EL2 下内核没法通过 PAS 启动 DSP；BIOS 260916 起由固件在 EL2 下预启动（Hypervisor Settings → “Remoteproc firmware preload”，默认 Auto） | 要求 BIOS ≥ 260916，内核 attach |
 | 风扇 | 由 ADSP 上的 Radxa 服务驱动；固件全速与高温时的自动曲线都输出 0 占空，Heatsink 6845B 在这时停转 | 开机切手动并定在 pwm1 190 |
-| 主线内核 | 7.2.7 里没有 Q8B 的 DTS；TC956x 网卡驱动还在上游审阅 | 打 78 个补丁（见下） |
+| 主线内核 | 7.2.7 里没有 Q8B 的 DTS；TC956x 网卡驱动还在上游审阅 | 打 80 个补丁（见下） |
 | 串口 | 40 针排针 Pin 6 GND、Pin 8 TXD、Pin 10 RXD；`ttyMSM0`，115200 | `board.conf` 里写死；DTS 补了 `stdout-path`，`earlycon` 可用 |
 | USB | 两个 Type-C 在 DTS 里都是 host | 不能当 One-KVM 的 USB 设备端 |
 
@@ -122,8 +122,8 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 
 ### 板级（`boards/dragon-q8b/`）
 
-- **内核补丁**（`linux/patches/`，78 个）：Armbian `sc8280xp-edge` 系列（armbian/build `1443dbae`）
-  带到 7.2.7：删掉 7.2.7 已包含或已被上游替代的 5 个，刷新 2 个。另加 19 个，来源与理由逐个写在
+- **内核补丁**（`linux/patches/`，80 个）：Armbian `sc8280xp-edge` 系列（armbian/build `1443dbae`）
+  带到 7.2.7：删掉 7.2.7 已包含或已被上游替代的 5 个，刷新 2 个。另加 21 个，来源与理由逐个写在
   `linux/README.md`：
   - 0060 修 TC956x 网卡驱动在栈上未初始化的 IRQ 域参数（内核不自动清零栈时两个网口都起不来）；
   - 0061–0065 与 0071 是上面 EL2 用到的；
@@ -134,7 +134,7 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
     “lpass-{rx,wsa}-macro: sort reg_defaults before regmap init”；
   - 0073–0075：AudioReach 音量控件名不再拼接 widget 名（否则超过 ALSA 的 44 字节被截断）、拓扑的延迟
     绑定不再按 warning 打印、Adreno 的旧式 “vdd”/“vddcx” 电源改为可选获取；
-  - 0076–0078 是风扇驱动，见下。
+  - 0076–0078 是风扇驱动，0079–0080 是 2.5G 网口的复位 quirk 与接收 FIFO，都见下。
 - **风扇**：风扇接在 PMC8280C 的 LPG（经 MOS 管反相到 J6 的 PWM 脚），由 ADSP 上 Radxa 自己的服务按温度
   调速，Linux 只能通过 glink 通道 `RADXA_SVC_ADSP_APPS` 下指令。
   - 驱动是 Radxa 的 `radxa_svc_glink`（补丁 0076/0077，Xilin Wu），模块，由 udev 按通道名加载。hwmon
@@ -150,6 +150,33 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
     升到 95°C 后掉电）。Radxa 建议手动模式、pwm1 不超过 190。`files/etc/local.d/q8b-fan.start` 开机切
     手动，先给 128 让风扇从静止起转，3 秒后定在 190（脚本里的 `SPEED` 可调低，最低 64；删掉文件则交回
     固件曲线）。这是 OpenRC 的 local.d 脚本，systemd 发行版上由引擎转成 oneshot 单元，eweOS 上转成 dinit 服务。
+- **2.5G 网口（TC956x / QPS615）**：两个网口是 TC956x 内部端点的两个 PCI 功能（`0004:03:00.0`/`.1`，
+  `1179:0220`），各带一个 XGMAC。
+  - 接收（补丁 0080）：驱动原来把 46 KiB 接收 FIFO 中的 32 KiB 平分给 4 个接收队列，但没有任何分流，
+    所有帧都进队列 0，8 KiB 在 2.5G 的线速突发下就溢出，PAUSE 也拦不住，单条 TCP 流不到 100 Mbit/s。
+    现在只用一个接收队列、独占整块 FIFO，iperf3 单流接收 2.25 Gbit/s、4 流 2.31 Gbit/s，发送 2.2 Gbit/s
+    不变。收发同时满载时芯片内部 DMA 带宽不够分，合计约 2.85 Gbit/s（收 2.36 / 发 0.49）。
+  - 复位（补丁 0079）：功能声明支持 FLR，但 FLR 后永远不再就绪，内核随后写配置空间时变成 SError，
+    整机 panic。quirk 去掉 FLR 和总线复位，这两个功能就没有任何复位方式（`reset_method` 属性消失）。
+  - **宿主上不要解绑 `tc956x_pci`**（`unbind`、`rmmod`）：芯片会停止响应，根口报 CmpltTO，AER 去读配置
+    空间时同样 SError、panic。原因还没查清（怀疑功能 1 卸载时清掉总线主控，而 MSI 发生器还有待发的中断）。
+    关机、重启走驱动的 shutdown 路径，不受影响。
+  - KVM 直通：开机就让 vfio-pci 接管两个功能，宿主驱动从头到尾不碰它们（也就不存在解绑）：
+
+    ```
+    # /etc/modprobe.d/vfio-tc956x.conf
+    options vfio-pci ids=1179:0220 disable_idle_d3=1
+    softdep tc956x_pci pre: vfio-pci
+    ```
+
+    两个功能同在 IOMMU 组 17（和根口、交换芯片的端口一起），MSI 走 GIC ITS，不需要 unsafe interrupts。
+    QEMU 用 `-device vfio-pci,host=0004:03:00.0,bus=pcie.0,addr=02.0,multifunction=on -device
+    vfio-pci,host=0004:03:00.1,bus=pcie.0,addr=02.1`（会提示 “no available reset mechanism”，是预期的）。
+    客户机内核要带这套补丁里的 TC956x 驱动，并用设备树启动：每个功能一个 `pci@2,N` 节点，写
+    `local-mac-address`（宿主的 EEPROM 进不了客户机），两个 PHY 的复位 GPIO 都接功能 0 的 `gpio`
+    子节点，去掉引用 SoC 引脚的 `wakeup-gpios`/`pinctrl`；节点结构照抄宿主设备树里的
+    `pcie@3,0` 子树。客户机必须正常关机（走 shutdown 路径），不能直接杀掉 QEMU。宿主因此没有有线网，
+    用 Wi-Fi 管理。
 - **内核片段**：`kconfig/qcom-sc8280xp.fragment`（SoC）+ `boards/dragon-q8b/kernel.fragment`（TC956x
   网卡、CH7218A HDMI、音频 codec、RTC）。从上电到根盘（含 NVMe）这一路全部内建，initramfs 只管导入
   ZFS 池。`DRM_MSM` 是模块：内建时 GPU 在根文件系统挂载前就请求固件，会报错；做成模块由 udev 在根文件系统挂好
@@ -212,6 +239,18 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
   - `dmesg -l err` 与 `journalctl -p err` 都为空，没有失败的服务，`systemctl is-system-running` 为 running。
   - 用 glink tracepoint 对比过修复前后：修复前风扇通道上 Linux 没有给出任何接收缓冲，ADSP 5 秒后才来要，
     随后关掉 PMIC_RTR；修复后通道一打开 Linux 就给出 1K 的接收缓冲。
+- 2.5G 网口（同一块板，对端是一台 2.5G 的 Windows 电脑，iperf3 3.22 / 3.18，单位 Mbit/s）：
+
+  | | 原驱动 | 补丁 0080 |
+  |---|---|---|
+  | 宿主接收，单流 | 96 | 2249 |
+  | 宿主接收，4 流 | 270 | 2306 |
+  | 宿主发送，单流 | 2205 | 2232–2265 |
+  | 接收 FIFO 溢出（直通客户机里同一组测试） | 约 1 万次 | 6 次 |
+
+  KVM 直通（补丁 0079，两个功能都交给 vfio-pci，客户机是同一个内核加 busybox initramfs）：客户机里
+  eth0、eth1 都拿到 2.5G 链路和 DHCP，经 eth1 单流接收 2353、发送 2253、4 流接收 2316；虚拟机开关十几次，
+  宿主没有任何 AER 或 SError。复现过两种 panic：宿主解绑 `tc956x_pci`，以及 FLR 后 65 秒设备仍未就绪。
 - 真板（BIOS 6.0.260818，当时 DSP 由 qebspil 启动，Intel SSDPEKKW256G8 NVMe 启动）：
   - 固件跳过 SD 从 NVMe 启动 → qebspil 启动 ADSP/CDSP → `CPU: All CPU(s) started at EL2` →
     initramfs 加载 OpenZFS 2.3.9、导入 `rpool`、挂上 `rpool/ROOT/debian`，内核 6.3 秒 + 用户态 10.1 秒；
@@ -240,7 +279,7 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 
 | 阶段 | 内容 |
 |---|---|
-| eth1 | 接上网线验证传输 |
+| TC956x 卸载 | 查清宿主解绑 `tc956x_pci` 让芯片卡死的原因，修好驱动的 remove 路径 |
 | Iris | 挂起/恢复与 VP9 解码的验证 |
 
 ## 风险与未验证项
@@ -256,7 +295,8 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 - DSP 崩溃后需要重启；风扇与 USB-C 都依赖 ADSP。EL2 下 DSP 由固件启动，内核不能重新加载它们。
 - 风扇定速 190 是 Radxa 的建议上限，也是这块板与 Heatsink 6845B 实测能维持转动的范围（pwm1 约 64–208）内；
   固定转速不随温度变化，满载时的温度没有在 190 下测过。
-- eth1 只验证了识别，未接网线测传输。
+- 2.5G 网口：宿主上解绑或卸载 `tc956x_pci` 会让整机 panic；收发同时满载时发送只剩约 0.5 Gbit/s；
+  补丁 0079 没有试过总线复位，只是保守地禁掉了它。
 - Iris 的无 TZ 启动：固件 IOMMU 流 `0x2a02` 来自社区实测，不在官方 DT 里；绕过 TZ 意味着没有受保护内容
   播放；补丁上游尚未合入，以后可能要换成 Linux 管 IOMMU、TZ 做鉴权的新接口。
 - ZFS 是 CDDL 许可，和 GPL 的内核一起分发二进制在法律上有争议：镜像适合自用，公开分发前要想清楚。
