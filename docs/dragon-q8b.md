@@ -172,6 +172,8 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 - **Wi-Fi 用户态**：`wpasupplicant` 与 `iw`，`/etc/network/interfaces` 里带 `wlan0` 模板
   （`lib/wifi.sh`，与 M28K、ROCK 5C 共用）。bluez 依赖 dbus，镜像不装；蓝牙固件照常加载，需要时
   `apt install bluez`。Debian 的 dhcpcd 设为 `background`，没插网线的网口不会卡 30 秒再报超时。
+  `wpa_supplicant.conf` 模板的控制接口只对 root 开放：Debian 没有 `wheel` 组，写了这个组 wpa_supplicant
+  直接起不来。
 
 ## 使用
 
