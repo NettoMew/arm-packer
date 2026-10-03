@@ -1,0 +1,116 @@
+# Incus capability contract: everything a full Incus host uses, containers and
+# virtual machines alike (https://linuxcontainers.org/incus/docs/main/requirements/).
+#
+# Merged as a request right after the distro base, then checked against the
+# final .config (see dae.contract): "=y" built in, "=m" module or built in,
+# "is not set" off, a quoted value matched exactly.
+
+# Containers: the cgroup v2 controllers Incus limits and every namespace.
+CONFIG_CGROUPS=y
+CONFIG_MEMCG=y
+CONFIG_BLK_CGROUP=y
+CONFIG_CGROUP_SCHED=y
+CONFIG_CGROUP_PIDS=y
+CONFIG_CGROUP_RDMA=y
+CONFIG_CGROUP_FREEZER=y
+CONFIG_CGROUP_HUGETLB=y
+CONFIG_CPUSETS=y
+CONFIG_CGROUP_DEVICE=y
+CONFIG_CGROUP_CPUACCT=y
+CONFIG_CGROUP_PERF=y
+CONFIG_CGROUP_BPF=y
+CONFIG_CGROUP_MISC=y
+CONFIG_NAMESPACES=y
+CONFIG_UTS_NS=y
+CONFIG_TIME_NS=y
+CONFIG_IPC_NS=y
+CONFIG_USER_NS=y
+CONFIG_PID_NS=y
+CONFIG_NET_NS=y
+CONFIG_SECCOMP=y
+CONFIG_SECCOMP_FILTER=y
+CONFIG_AIO=y
+CONFIG_POSIX_MQUEUE=y
+CONFIG_KEYS=y
+CONFIG_FANOTIFY=y
+CONFIG_INOTIFY_USER=y
+# CRIU live migration of containers.
+CONFIG_CHECKPOINT_RESTORE=y
+# lxcfs.
+CONFIG_FUSE_FS=m
+
+# AppArmor confines every instance; it has to be in the LSM order to run at all.
+CONFIG_SECURITY=y
+CONFIG_SECURITYFS=y
+CONFIG_SECURITY_APPARMOR=y
+CONFIG_LSM="landlock,lockdown,yama,loadpin,safesetid,ipe,apparmor,bpf"
+
+# Storage: the pool is ZFS (OpenZFS is built beside the kernel, lib/zfs.sh); the
+# rest serves images, cloud-init config drives and the drivers an administrator
+# may add later (btrfs, lvm, Ceph RBD and CephFS).
+CONFIG_OVERLAY_FS=m
+CONFIG_SQUASHFS=m
+CONFIG_SQUASHFS_XZ=y
+CONFIG_SQUASHFS_ZSTD=y
+CONFIG_BTRFS_FS=m
+CONFIG_BLK_DEV_DM=m
+CONFIG_DM_THIN_PROVISIONING=m
+CONFIG_DM_SNAPSHOT=m
+CONFIG_BLK_DEV_LOOP=m
+CONFIG_BLK_DEV_NBD=m
+CONFIG_ISO9660_FS=m
+CONFIG_CEPH_LIB=m
+CONFIG_BLK_DEV_RBD=m
+CONFIG_CEPH_FS=m
+CONFIG_FS_POSIX_ACL=y
+CONFIG_TMPFS_POSIX_ACL=y
+CONFIG_TMPFS_XATTR=y
+
+# Virtual machines: KVM, virtio back ends, the incus-agent's vsock, postcopy
+# migration, huge pages and PCI passthrough.
+CONFIG_VIRTUALIZATION=y
+CONFIG_KVM=y
+CONFIG_VHOST_NET=m
+CONFIG_VHOST_VSOCK=m
+CONFIG_VSOCKETS=m
+CONFIG_TUN=m
+CONFIG_TAP=m
+CONFIG_MACVTAP=m
+CONFIG_USERFAULTFD=y
+CONFIG_HUGETLBFS=y
+CONFIG_TRANSPARENT_HUGEPAGE=y
+CONFIG_VFIO=m
+CONFIG_VFIO_PCI=m
+
+# Networking: managed bridges, OVN overlays (Open vSwitch with Geneve/VXLAN
+# tunnels, conntrack zones and the ct action), physical/macvlan/ipvlan NICs, the
+# nftables firewall and NAT, and per-instance bandwidth limits.
+CONFIG_BRIDGE=m
+CONFIG_BRIDGE_VLAN_FILTERING=y
+CONFIG_BRIDGE_NETFILTER=m
+CONFIG_VLAN_8021Q=m
+CONFIG_VETH=m
+CONFIG_MACVLAN=m
+CONFIG_IPVLAN=m
+CONFIG_VXLAN=m
+CONFIG_GENEVE=m
+CONFIG_OPENVSWITCH=m
+CONFIG_OPENVSWITCH_GENEVE=m
+CONFIG_OPENVSWITCH_VXLAN=m
+CONFIG_NF_CONNTRACK_ZONES=y
+CONFIG_NET_ACT_CT=m
+CONFIG_DUMMY=m
+CONFIG_NF_TABLES=m
+CONFIG_NF_TABLES_INET=y
+CONFIG_NF_TABLES_BRIDGE=m
+CONFIG_NFT_NAT=m
+CONFIG_NFT_MASQ=m
+CONFIG_NFT_REJECT=m
+CONFIG_NFT_CT=m
+CONFIG_NFT_FIB_INET=m
+CONFIG_NFT_LIMIT=m
+CONFIG_NF_CONNTRACK=m
+CONFIG_NET_SCH_HTB=m
+CONFIG_NET_SCH_INGRESS=m
+CONFIG_NET_CLS_U32=m
+CONFIG_NET_ACT_POLICE=m

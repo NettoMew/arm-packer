@@ -19,12 +19,112 @@ kernel_dtb_has_source() {
   [[ -f "${dir}/${name}.dts" ]] || grep -Eq "^${name}-dtbs[[:space:]]*:=" "${dir}/Makefile" 2>/dev/null
 }
 
+# The profile's capability contracts (kconfig/<name>.contract), as absolute paths.
+kernel_contract_list() {
+  local -a list=() names
+  local n
+  IFS=' ' read -r -a names <<< "$(profile_kernel_contracts)"   # global IFS has no space
+  for n in "${names[@]}"; do
+    list+=("${KCONFIG_DIR}/${n}.contract")
+  done
+  KERNEL_CONTRACT_LIST=("${list[@]}")
+}
+
+# Check CONFIG against one CONTRACT and print each line it breaks. "=y" must be
+# built in, "=m" may be a module or built in, "# … is not set" must be off and a
+# quoted value must match exactly; any other line that is not a comment is
+# broken by definition, so a typo can never drop out of the check. Returns
+# nonzero when anything is broken (or the contract states nothing).
+kernel_contract_check() {
+  local config="$1" contract="$2" line key want count=0 broken=0
+  [[ -s "${config}" && -s "${contract}" ]] || { printf 'missing config or contract\n'; return 1; }
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    if [[ "${line}" =~ ^(CONFIG_[A-Z0-9_]+)=([ym])$ ]]; then
+      key="${BASH_REMATCH[1]}"; want="${BASH_REMATCH[2]}"
+      [[ "${want}" == m ]] && want='[ym]'
+      grep -Eq "^${key}=${want}$" "${config}" || { printf '%s\n' "${line}"; broken=1; }
+    elif [[ "${line}" =~ ^(CONFIG_[A-Z0-9_]+)=(\".*\")$ ]]; then
+      grep -Fxq "${line}" "${config}" || { printf '%s\n' "${line}"; broken=1; }
+    elif [[ "${line}" =~ ^#\ (CONFIG_[A-Z0-9_]+)\ is\ not\ set$ ]]; then
+      key="${BASH_REMATCH[1]}"
+      grep -Eq "^${key}=[ym]$" "${config}" && { printf '%s\n' "${line}"; broken=1; }
+    elif [[ -z "${line//[[:space:]]/}" || "${line}" == \#* ]]; then
+      continue
+    else
+      printf '%s\n' "${line}"; broken=1
+    fi
+    count=$((count + 1))
+  done < "${contract}"
+  ((count > 0 && broken == 0))
+}
+
+# Write OUT, the request CONTRACT makes of the merge: the contract itself, less
+# each "=m" whose symbol the files merged BEFORE it already build in, since "=m"
+# means at least a module and must never lower a built-in to one.
+kernel_contract_request() {
+  local contract="$1" out="$2" line key; shift 2
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    if [[ "${line}" =~ ^(CONFIG_[A-Z0-9_]+)=m$ ]]; then
+      key="${BASH_REMATCH[1]}"
+      [[ "$(grep -h -E "^${key}=|^# ${key} is not set" "$@" | tail -n1)" == "${key}=y" ]] && continue
+    fi
+    printf '%s\n' "${line}"
+  done < "${contract}" > "${out}"
+}
+
+# Every contract against the resolved .config, before anything is compiled.
+kernel_validate_contracts() {
+  local cfg="${KERNEL_BUILD_DIR}/.config" c line key have failed=0 missing
+  for c in "${KERNEL_CONTRACT_LIST[@]}"; do
+    if missing="$(kernel_contract_check "${cfg}" "${c}")"; then
+      log "contract met: ${c#"${PROJECT_DIR}/"}"
+      continue
+    fi
+    while IFS= read -r line; do
+      key="$(grep -oE 'CONFIG_[A-Z0-9_]+' <<< "${line}" | head -n1)"
+      have="$(grep -E "^${key}=|^# ${key} is not set" "${cfg}" || printf 'unset')"
+      warn "${c##*/}: wants '${line}', the .config has '${have}'"
+    done <<< "${missing}"
+    failed=1
+  done
+  ((failed == 0)) || fatal "The kernel .config breaks a capability contract (see above): a fragment overrides it, or a Kconfig dependency is missing (BTF needs pahole on the host)."
+}
+
+# A .config that asks for BTF must produce it: when pahole is missing or too
+# old, kbuild drops it without failing, and only the loader of a CO-RE program
+# finds out. Checked for every build, whatever the profile.
+kernel_validate_btf() {
+  local cfg="${KERNEL_BUILD_DIR}/.config" ko
+  grep -qx 'CONFIG_DEBUG_INFO_BTF=y' "${cfg}" || return 0
+  _kernel_has_btf "${KERNEL_BUILD_DIR}/vmlinux" || fatal "CONFIG_DEBUG_INFO_BTF=y but vmlinux has no .BTF section (pahole missing or failed)."
+  grep -qx 'CONFIG_DEBUG_INFO_BTF_MODULES=y' "${cfg}" || { log "BTF: vmlinux"; return 0; }
+  ko="$(find "${KERNEL_BUILD_DIR}" -name '*.ko' -print -quit)"
+  if [[ -z "${ko}" ]] || ! _kernel_has_btf "${ko}"; then
+    fatal "CONFIG_DEBUG_INFO_BTF_MODULES=y but modules carry no .BTF section (${ko:-no module built})."
+  fi
+  log "BTF: vmlinux and modules"
+}
+
+# True when ELF file $1 has a non-empty .BTF section. The section index may be
+# split over two fields ("[ 9]"), so the size is found relative to the name.
+_kernel_has_btf() {
+  readelf -SW "$1" 2>/dev/null | awk '
+    { for (i = 1; i <= NF; i++)
+        if ($i == ".BTF" && $(i + 1) == "PROGBITS") { size = $(i + 4); gsub(/0/, "", size); if (size != "") found = 1 } }
+    END { exit !found }'
+}
+
 # Assemble KERNEL_FRAGMENT_LIST (absolute paths, in merge order).
 kernel_fragment_list() {
   local -a list=()
   if [[ "${DISTRO_KERNEL}" == "1" && -f "${DISTRO_CONFIG_FRAGMENT}" ]]; then
     list+=("${DISTRO_CONFIG_FRAGMENT}")
   fi
+  # The profile's contracts, as requests: after the distro base, before everything
+  # board-specific, so a board can still build in what a contract asks as a module
+  # (and a board turning off what a contract needs fails the gate, not the board).
+  kernel_contract_list
+  list+=("${KERNEL_CONTRACT_LIST[@]}")
   list+=("${KCONFIG_DIR}/essentials.fragment")
   local f
   # Vendor + SoC fragments (rockchip [+ rk3588] | allwinner-h618).
@@ -82,15 +182,25 @@ build_kernel() {
   kernel_fragment_list
   local frags="${#KERNEL_FRAGMENT_LIST[@]}"
   section "Merging ${frags} kconfig fragments on top of ${KERNEL_DEFCONFIG}"
+  # A contract enters the merge as its request (kernel_contract_request), judged
+  # against defconfig and the fragments ahead of it.
   local f
+  local -a merge=() before=("${KERNEL_BUILD_DIR}/.config")
   for f in "${KERNEL_FRAGMENT_LIST[@]}"; do
     [[ -f "${f}" ]] || fatal "Kernel fragment missing: ${f}"
     log "fragment: ${f#"${PROJECT_DIR}/"}"
+    if [[ "${f}" == *.contract ]]; then
+      kernel_contract_request "${f}" "${KERNEL_BUILD_DIR}/${f##*/}.request" "${before[@]}"
+      f="${KERNEL_BUILD_DIR}/${f##*/}.request"
+    fi
+    merge+=("${f}")
+    before+=("${f}")
   done
   run "${KERNEL_SRC_DIR}/scripts/kconfig/merge_config.sh" -m -O "${KERNEL_BUILD_DIR}" \
-    "${KERNEL_BUILD_DIR}/.config" "${KERNEL_FRAGMENT_LIST[@]}"
+    "${KERNEL_BUILD_DIR}/.config" "${merge[@]}"
 
   run make -C "${KERNEL_SRC_DIR}" O="${KERNEL_BUILD_DIR}" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+  kernel_validate_contracts
 
   # Verification escape hatch: stop right after the .config is resolved so the new
   # engine's .config can be diffed against the old build.sh's (no compile needed).
@@ -103,6 +213,7 @@ build_kernel() {
 
   [[ -f "${KERNEL_BUILD_DIR}/arch/arm64/boot/Image" ]] || fatal "Kernel Image not generated."
   [[ -f "${KERNEL_BUILD_DIR}/arch/arm64/boot/dts/${KERNEL_DTB}" ]] || fatal "Kernel DTB not generated: ${KERNEL_DTB}"
+  kernel_validate_btf
 }
 
 # The release string of the built kernel (its /lib/modules directory name).

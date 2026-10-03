@@ -1,8 +1,8 @@
 # 架构
 
-声明式、可插拔架构：**三根正交插件轴 board × vendor × distro**，外加根文件系统轴与 kconfig 片段轴。引擎
-`lib/*.sh` 里**没有任何 board/vendor/distro 的 `if` 分支**——差异全在插件/配置里。加一块板 /
-一个发行版 = 加一个文件，不改引擎。
+声明式、可插拔架构：**三根正交插件轴 board × vendor × distro**，外加根文件系统轴、用途轴（profile）与
+kconfig 片段轴。引擎 `lib/*.sh` 里**没有任何 board/vendor/distro/profile 的 `if` 分支**——差异全在插件/配置里。
+加一块板 / 一个发行版 / 一种用途 = 加一个文件，不改引擎。
 
 ## 契约
 
@@ -38,7 +38,16 @@
   建池（`rpool`，特性集限定 `openzfs-2.2-linux`）并挂 `rpool/ROOT/<distro>`，由发行版装同版本用户态、
   做 initramfs，UEFI 启动项带上 `initrd`，命令行 `root=ZFS=rpool/ROOT/<distro>`，fstab 不写根；
   收尾先 `zpool trim` 把空闲块还给稀疏镜像，再导出。首启扩容脚本认得两种根：ext4 `resize2fs`，
-  ZFS `zpool online -e`。
+  ZFS `zpool online -e`；`/etc/default/grow-rootfs` 可让非 ZFS 根只扩到 `ROOT_SIZE`、余下建数据分区
+  （incus profile 用它给 U-Boot 板建 ZFS 池）。OpenZFS 模块的编译与安装是共享能力 `lib/zfs.sh`
+  （ZFS 根与 incus profile 都用，一次构建只做一次）。
+- **profile_\***（`lib/profile/<profile>.sh`，用途，由 `PROFILE` 选，默认 `base` 什么都不加）：
+  `profile_env_summary / _check_config / _check_host / _kernel_contracts / _build_modules / _install`，
+  可设 `PROFILE_IMAGE_TAG`（镜像名追加，如 `-incus`）与 `PROFILE_IMAGE_SIZE`。`_kernel_contracts` 列出
+  `kconfig/<名>.contract`：合约紧跟 distro 基线作为请求合并（`=m` 绝不降级已内建的符号），`olddefconfig`
+  后逐条核对最终 `.config`，不符即停（见 [kconfig/README.md](../kconfig/README.md)）。`_install` 在
+  `distro_finalize` 之前运行。profile 需要的发行版能力用可选函数表达（incus 要 `distro_add_package_source`
+  与 `distro_install_zfs`），缺了就在 dry-run 阶段拒绝。详见 [incus.md](incus.md)。
 - **board_\* 钩子**（可选）：`board_inject_sources / _build_modules / _install_modules /
   _install_userspace / _configure_runtime / _install_extras`；pipeline 用 `board_hook <name>` 调，
   未定义即 no-op。
@@ -58,7 +67,10 @@ lib/                          # 引擎模块（无 board/vendor/distro 分支）
   sources/kernel/             #   取源(+定镜像名)、内核(片段合并)
   image/rootfs/pipeline.sh    #   镜像分区/写引导、共享 rootfs 落地、run_pipeline + 钩子分派
   fs/ext4.sh                  #   根文件系统 ext4（默认）：内核直接挂载，无 initramfs
-  fs/zfs.sh                   #   根文件系统 ZFS：随内核编 OpenZFS 模块、构建机建池、initramfs 导入
+  fs/zfs.sh                   #   根文件系统 ZFS：构建机建池、initramfs 导入
+  zfs.sh                      #   OpenZFS 能力：锁版本发布包随内核编模块 + 装同版本用户态（ZFS 根 / incus 共用）
+  profile/base.sh             #   用途 base：什么都不加（profile_* 契约的空对象）
+  profile/incus.sh            #   用途 incus：内核合约 incus+dae、Zabbly Incus、ZFS 池、首启离线初始化
   wifi.sh                     #   Wi-Fi/BT 用户态（wpa_supplicant 模板 + wlan0 + 服务），各带无线的板共用
   aic8800.sh                  #   AIC8800 Wi-Fi/BT 驱动能力（m28k SDIO / rock5c USB 共用）
   kernel-update.sh            #   独立工作区、检查/编译报告、默认版本更新检查
@@ -80,8 +92,9 @@ boards/m28k/                  #   有屏 M28K：hooks.sh + kernel.fragment + 注
 boards/rock5c/                #   hooks.sh（RK3582 开核 + AIC8800 USB）+ uboot/aic8800 补丁
 boards/dragon-q8b/            #   board.conf + hooks.sh + kernel.fragment + firmware.lock + linux/patches（80 个）+ files/（风扇定速）
 # e20c / opiz3 纯主线，只有 board.conf，无 hooks/注入源
-kconfig/                      # 可组合内核片段 + distro-arm64.config 基线（见 kconfig/README.md）
+kconfig/                      # 可组合内核片段 + distro-arm64.config 基线 + 能力合约 *.contract（见 kconfig/README.md）
 resources/rootfs/             # 固定 rootfs 文件（resize 脚本、wpa 模板、interfaces 基底）
+resources/incus/              # Zabbly 签名密钥 + Incus 主机的 rootfs 覆盖层（首启初始化、ARC 上限、sysctl/limits）
 work/                         # 源码树工作区（U-Boot/Linux + rkbin/aic8800 或 arm-trusted-firmware）
 work/kernel-validation/       # 候选内核的独立工作区/产物/报告（不动日常构建树）
 out/                          # 成品镜像（*.img.xz）
@@ -89,6 +102,7 @@ out/                          # 成品镜像（*.img.xz）
 
 ## 内核 = defconfig + 片段 merge_config
 
-见 [kconfig/README.md](../kconfig/README.md)。片段按顺序合并（distro 基线在前，
-essentials/vendor/SoC/board/leds/docker/modern 在后，后者覆盖前者重新强制内建）。改内核选项 =
-改 `kconfig/*.fragment`，不要回到命令式。
+见 [kconfig/README.md](../kconfig/README.md)。片段按顺序合并（distro 基线在前，profile 的能力合约紧随其后，
+essentials/vendor/SoC/distro/board/leds/docker/modern 在后，后者覆盖前者重新强制内建）。改内核选项 =
+改 `kconfig/*.fragment`，不要回到命令式；profile 依赖、不许被悄悄丢掉的能力写进 `kconfig/*.contract`。
+`.config` 定型后核对全部合约，编完核对 BTF 真的生成。

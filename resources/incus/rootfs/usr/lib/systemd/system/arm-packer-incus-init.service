@@ -1,0 +1,16 @@
+[Unit]
+Description=First-boot Incus setup (ZFS pool, incusbr0, API and web UI on :8443)
+Documentation=https://linuxcontainers.org/incus/docs/main/howto/initialize/
+# The disk is partitioned and the root pool's datasets are mounted before Incus
+# takes its pool.
+After=firstboot-grow.service zfs-import.target zfs-mount.service incus.service
+Wants=incus.service
+ConditionPathExists=!/var/lib/incus/.arm-packer-initialized
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/arm-packer/incus-init
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -22,6 +22,8 @@ make all             # 依次构建全部板子
 
 - **选发行版**（默认 alpine）：`DISTRO=archlinux make rock5c` / `DISTRO=debian make rock5c` / `DISTRO=eweos make rock5c`。
   `debian` 需要宿主机装有 `mmdebstrap` 与 `debian-archive-keyring`（Debian/Ubuntu 直接 apt 安装，Arch 走 AUR）。
+- **选用途**（默认 base）：`DISTRO=debian PROFILE=incus make dragon-q8b` 产出 Incus 主机
+  `*-debian-incus-*.img.xz`：内核按 incus/dae 能力合约编、ZFS 存储池、首启离线初始化，见 [Incus 主机](incus.md)。
 - 任意 `scripts/build.sh` 开关都能命令行透传，例：`make opiz3 ROOT_PASSWORD=secret SKIP_FETCH=1`。
 - **dry-run**：`make <板>-dry` 只解析配置、打印内核片段与板级钩子，不构建（秒级、无需联网/sudo）。
 
@@ -66,6 +68,10 @@ BTF 生成也会随 `JOBS` 并行，内存不足时不能只看 C 编译是否�
 |------|------|------|
 | `BOARD` | `e20c` | `e20c` / `m28k` / `rock5c` / `opiz3`（`make <板子>` 会自动设好） |
 | `DISTRO` | `alpine` | `alpine`（apk+OpenRC）/ `archlinux`（pacman+systemd）/ `debian`（apt+systemd+ifupdown，最小化）/ `eweos`（pacman+dinit，musl/busybox） |
+| `PROFILE` | `base` | 用途插件 `lib/profile/<名>.sh`：`base`（什么都不加）/ `incus`（Incus 主机，仅 `debian`；镜像名加 `-incus`，见 [incus.md](incus.md)） |
+| `INCUS_CHANNEL` | `stable` | 仅 incus：Zabbly 频道（`stable` / `lts-7.0` / `lts-6.0` / `daily`） |
+| `INCUS_PACKAGES` | `incus incus-ui-canonical skopeo umoci` | 仅 incus：从 Zabbly/Debian 装的包 |
+| `INCUS_ROOT_SIZE` / `INCUS_POOL_MIN` | `8G` / `8G` | 仅 incus、非 ZFS 根：首启根分区只扩到前者，余下（至少后者）建 ZFS 池分区；盘不够就拒绝初始化 |
 | `JOBS` | `nproc` | 编译并发；完整内核的 BTF 阶段内存占用较高，小内存构建机可设 `1` |
 | `KERNEL_REPO` | `config/versions.conf` 中的 `DEFAULT_KERNEL_REPO` | Linux 源码仓库；需包含 `KERNEL_REF` 指定的标签/分支 |
 | `KERNEL_REF` | `config/versions.conf` 中的 `DEFAULT_KERNEL_REF` | 固定内核版本；`SKIP_FETCH=1` 时不会切换已有源码 |
@@ -87,7 +93,7 @@ BTF 生成也会随 `JOBS` 并行，内存不足时不能只看 C 编译是否�
 | `DEBIAN_VARIANT` | `important` | 仅 `debian`：mmdebstrap 基础层（Debian 优先级定义的最小可用系统）；更薄的 `required`/`apt` 缺 login 与 debconf 前端 |
 | `DEBIAN_EXTRA_PACKAGES` | 空 | 仅 `debian`：在基础系统之外追加的包（空格分隔），如 `curl htop` |
 | `DEBIAN_MASKED_UNITS` | apt/dpkg/e2scrub 周期任务 | 仅 `debian`：屏蔽的 systemd 单元（`fstrim.timer` 保留） |
-| `IMAGE_SIZE` | alpine `1G` / arch `4G` / debian `2G` / eweos `2G` | 根文件系统大小（稀疏 + 首启扩容）；ESP 等其他分区另加 |
+| `IMAGE_SIZE` | alpine `1G` / arch `4G` / debian `2G` / eweos `2G`；incus `4G` | 根文件系统大小（稀疏 + 首启扩容）；ESP 等其他分区另加；profile 的需求优先于发行版默认 |
 | `ROOTFS_TYPE` | 板级 `BOARD_ROOTFS_TYPE`，否则 `ext4` | 根文件系统插件 `lib/fs/<type>.sh`：`ext4`，或 `zfs`（仅 UEFI 厂商 + `debian`；dragon-q8b 默认） |
 | `ZFS_POOL` | `rpool` | 仅 zfs：池名；根数据集为 `<池>/ROOT/<distro>` |
 | `ZFS_POOL_COMPATIBILITY` | `openzfs-2.2-linux` | 仅 zfs：建池时限定的特性集，构建机比镜像新也不会启用镜像模块不认识的特性；板上 `zpool set compatibility=off` 后可 `zpool upgrade` |

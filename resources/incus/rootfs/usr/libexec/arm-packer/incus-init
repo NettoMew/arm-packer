@@ -1,0 +1,113 @@
+#!/bin/sh
+# First-boot Incus setup (arm-packer, PROFILE=incus): the storage pool on ZFS,
+# the NAT bridge incusbr0, and the API with the web UI on port 8443. Needs no
+# network. Runs once: the unit skips it as soon as the marker exists, and a
+# failure leaves no marker, so the next boot retries.
+#
+# Storage is ZFS and nothing else. On a ZFS root the pool is a dataset beside the
+# root (rpool/incus). On any other root it is a pool of its own, "incus", on the
+# partition grow-rootfs made from the disk beyond the root's 8 GiB; a disk with
+# no room for one stops the setup here, so Incus never runs on a lesser driver.
+set -eu
+
+marker=/var/lib/incus/.arm-packer-initialized
+# shellcheck source=/dev/null
+. /etc/arm-packer/incus.conf
+
+fail() { echo "incus-init: $*" >&2; exit 1; }
+
+if [ "$(findmnt -no FSTYPE /)" = zfs ]; then
+	root=$(findmnt -no SOURCE /)
+	pool="${root%%/*}/incus"
+	zfs list -H -o name "$pool" >/dev/null 2>&1 || zfs create -o mountpoint=none "$pool"
+else
+	pool=incus
+	if ! zpool list -H -o name incus >/dev/null 2>&1; then
+		zpool import -N incus 2>/dev/null || {
+			part=$(cat /var/lib/misc/incus.partition 2>/dev/null) \
+				|| fail "no partition for the ZFS pool: the disk has no room beyond the root (Incus needs at least ${INCUS_MIN_DISK}), or first-boot growth is off."
+			udevadm settle --timeout=30 || true
+			[ -b "$part" ] || fail "the pool's partition $part is missing."
+			# This board's own hostid, not the image's: no initramfs has to agree
+			# with it, and two boards from one image must not share it.
+			zgenhostid -f >/dev/null
+			opts=''
+			for p in $POOL_PROPERTIES; do opts="$opts -o $p"; done
+			for p in $DATASET_PROPERTIES; do opts="$opts -O $p"; done
+			# shellcheck disable=SC2086  # each option is its own word.
+			zpool create -f $opts -O mountpoint=none incus "$part"
+		}
+	fi
+fi
+
+# incusbr0's subnets come from this board's machine-id: stable across re-runs,
+# different on every board, decided without touching the network. (Incus's own
+# "auto" probes candidates by ping and TCP connect, which a transparent proxy
+# that accepts every connection answers for all of them.) A candidate that
+# overlaps an address or route this host already has is skipped.
+ip2int() { echo "$1" | { IFS=. read -r a b c d; echo $(( (a << 24) + (b << 16) + (c << 8) + d )); }; }
+taken() {
+	n=$(ip2int "10.$1.$2.0")
+	{ ip -4 -o addr show | awk '{ print $4 }'; ip -4 route show | awk '$1 != "default" { print $1 }'; } | while read -r r; do
+		p=${r%/*}; l=${r#*/}; [ "$l" = "$r" ] && l=32
+		s=$(( l < 24 ? l : 24 )); mask=$(( (0xffffffff << (32 - s)) & 0xffffffff ))
+		[ $(( n & mask )) -eq $(( $(ip2int "$p") & mask )) ] && echo taken
+	done | grep -q taken
+}
+h=$(sha256sum /etc/machine-id | cut -c1-64)
+byte() { echo $(( 0x$(echo "$h" | cut -c$(( $1 * 2 + 1 ))-$(( $1 * 2 + 2 ))) )); }
+
+incus admin waitready --timeout=300
+
+if incus network show incusbr0 >/dev/null 2>&1; then
+	# A retry after a partial run keeps the bridge as it is.
+	ipv4=$(incus network get incusbr0 ipv4.address); ipv6=$(incus network get incusbr0 ipv6.address)
+else
+	ipv4=''
+	i=0
+	while [ $i -lt 30 ]; do
+		a=$(byte $i); b=$(byte $(( i + 1 )))
+		taken "$a" "$b" || { ipv4="10.$a.$b.1/24"; break; }
+		i=$(( i + 2 ))
+	done
+	[ -n "$ipv4" ] || fail "every candidate subnet for incusbr0 is in use here; set one with: incus network create incusbr0 ipv4.address=<cidr>"
+	ipv6="fd42:$(echo "$h" | cut -c41-44):$(echo "$h" | cut -c45-48):$(echo "$h" | cut -c49-52)::1/64"
+fi
+
+incus admin init --preseed <<EOF
+config:
+  core.https_address: '[::]:8443'
+networks:
+- name: incusbr0
+  type: bridge
+  config:
+    ipv4.address: ${ipv4}
+    ipv4.nat: "true"
+    ipv6.address: ${ipv6}
+    ipv6.nat: "true"
+storage_pools:
+- name: default
+  driver: zfs
+  config:
+    source: ${pool}
+profiles:
+- name: default
+  devices:
+    root:
+      path: /
+      pool: default
+      type: disk
+    eth0:
+      name: eth0
+      network: incusbr0
+      type: nic
+EOF
+
+# Downloaded images and exported backups live in the pool too, not on the root.
+for v in images backups; do
+	incus storage volume show default "$v" >/dev/null 2>&1 || incus storage volume create default "$v"
+done
+incus config set storage.images_volume=default/images storage.backups_volume=default/backups
+
+touch "$marker"
+echo "Incus initialised: ZFS pool default ($pool), bridge incusbr0 ($ipv4, $ipv6), API and web UI on :8443."

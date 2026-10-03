@@ -1,0 +1,10 @@
+#!/bin/sh
+# Cap the ZFS ARC at a quarter of RAM (arm-packer, PROFILE=incus). OpenZFS takes
+# the larger of 5/8 of RAM and all but 1 GiB by default, which on a small board
+# leaves the instances to fight the cache for memory. A zfs_arc_max set by the
+# administrator, in /etc/modprobe.d or on the kernel command line, wins.
+set -eu
+grep -qs '^[^#]*zfs_arc_max' /proc/cmdline /etc/modprobe.d/*.conf && exit 0
+mem=$(awk '$1 == "MemTotal:" { print $2 * 1024 }' /proc/meminfo)
+echo $((mem / 4)) > /sys/module/zfs/parameters/zfs_arc_max
+echo "ZFS ARC capped at $((mem / 4 / 1048576)) MiB (a quarter of RAM)."

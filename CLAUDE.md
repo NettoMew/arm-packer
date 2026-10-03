@@ -1,23 +1,26 @@
 # CLAUDE.md — 项目向导（给 Claude Code 看的）
 
 主线 SBC 固件构建器：从主线源码为多块 Rockchip / Allwinner / Qualcomm 开发板构建可直接烧录的整盘镜像。
-**三根正交插件轴：board × vendor × distro**，外加根文件系统轴（`lib/fs`）与 kconfig 片段轴。引擎 `lib/*.sh` 里**没有任何
-board/vendor/distro 的 `if` 分支**——差异全在插件/配置里。加一块板/一个发行版 = 加一个文件，不改引擎。
+**三根正交插件轴：board × vendor × distro**，外加根文件系统轴（`lib/fs`）、用途轴（`lib/profile`，`PROFILE`）与 kconfig
+片段/合约轴。引擎 `lib/*.sh` 里**没有任何 board/vendor/distro/profile 的 `if` 分支**——差异全在插件/配置里。加一块板/一个发行版/
+一种用途 = 加一个文件，不改引擎。
 
 ## 入口 & 跑法
 - `make <board>`（`e20c`/`m28k`/`m28k-noscreen`/`rock5c`/`rock5c-stock`/`opiz3`/`dragon-q8b`/`all`）→ 调 `scripts/build.sh`。
-- 等价 `BOARD=rock5c DISTRO=archlinux scripts/build.sh`。
+- 等价 `BOARD=rock5c DISTRO=archlinux scripts/build.sh`。Incus 主机：`DISTRO=debian PROFILE=incus make <board>`（见 `docs/incus.md`）。
 - `make <board>-dry` / `scripts/build.sh --dry-run`：只解析配置、打印片段/钩子/镜像名，**不构建、不联网、不 sudo**（秒级，验证改动的首选）。
 - `scripts/build.sh --stop-after-kconfig`：编到内核 `.config` 就停（用于对比 `.config`）。
 - 默认源码版本集中在 `config/versions.conf`；`make kernel-check/kernel-build BOARD=... KERNEL_REF=vX.Y.Z`
   使用全新独立验证工作区，不取 U-Boot/固件、不做 rootfs。`kernel-promote` 需成功 build 报告与人工真机确认，见 `docs/kernel-updates.md`。
-- 以普通用户跑；需要 root 的步骤自动 `sudo`。成品在 `out/`，镜像名 `<前缀>-<distro>-<内核版本>.img.xz`。
+- 以普通用户跑；需要 root 的步骤自动 `sudo`。成品在 `out/`，镜像名 `<前缀>-<distro>[-<profile>]-<内核版本>.img.xz`。
 
 ## 目录 / 职责
 ```
-scripts/build.sh    唯一入口(orchestrator)：解析 flags → 载 board.conf → 载 vendor+distro+fs+hooks → 派生 → run_pipeline
+scripts/build.sh    唯一入口(orchestrator)：解析 flags → 载 board.conf → 载 vendor+distro+fs+profile+hooks → 派生 → run_pipeline
 lib/log,env,deps,workspace,sources,kernel,image,rootfs,wifi,pipeline.sh   引擎模块(distro/vendor 无关)
 lib/aic8800.sh                       板子按需 source 的共享能力：AIC8800 驱动
+lib/zfs.sh                           共享能力：OpenZFS 随内核编模块 + 装同版本用户态（ZFS 根与 incus profile 共用，一次构建只做一次）
+lib/profile/{base,incus}.sh          用途插件(PROFILE)：profile_* 契约；base 什么都不加；incus = 合约 + Zabbly Incus + ZFS 池
 lib/vendor/{rockchip,allwinner,qcom}.sh   厂商插件(启动链)：vendor_* 契约
 lib/boot/{uboot,uefi}.sh             启动方式，由厂商插件 source：U-Boot + extlinux / 板载 UEFI + systemd-boot(ESP, BLS)
 lib/distro/{alpine,archlinux,debian,eweos}.sh   发行版插件(用户态)：distro_* 契约
@@ -26,7 +29,9 @@ lib/fs/{ext4,zfs}.sh                 根文件系统插件(ROOTFS_TYPE)：fs_* �
 boards/<board>/board.conf            每板声明式配置(必填键见下)
 boards/{m28k,rock5c}/hooks.sh        板级钩子(可选)：board_* 函数；就近放 DTS/补丁/固件移植/OLED
 kconfig/*.fragment + distro-arm64.config   可组合内核片段(见 kconfig/README.md)
+kconfig/*.contract                   能力合约(incus、dae)：profile 依赖的内核能力，既是请求也是门禁
 resources/rootfs/                    固定 rootfs 文件(resize 脚本、wpa 模板、interfaces 基底)
+resources/incus/                     Zabbly 密钥 + Incus 主机覆盖层(首启初始化、ARC 上限、sysctl/limits)
 resources/systemd/  resources/debian/   systemd 早期扩容单元 / Debian 的 dpkg+apt 策略与 rootfs 覆盖层
 work/  out/                          源码树工作区 / 成品
 ```
@@ -46,11 +51,16 @@ work/  out/                          源码树工作区 / 成品
   _write_repos / _configure_time / _configure_network / _add_wifi_iface / _configure_console /
   _enable_base_services / _enable_services / _install_oneshot / _adapt_local_d / _install_resize_service /
   _finalize / _default_fragments / _env_summary`；并设 `DISTRO_PRETTY DISTRO_IMAGE_SIZE
-  GPU_USERSPACE_PACKAGES WIFI_USERSPACE_PACKAGES`。能引导 ZFS 根的另实现 `distro_install_zfs 版本 /
-  distro_build_initramfs 内核release 输出路径`（目前只有 debian；其余发行版配 zfs 在 dry-run 就报错）。
+  GPU_USERSPACE_PACKAGES WIFI_USERSPACE_PACKAGES`。能用 ZFS 的另实现 `distro_install_zfs 版本`（同版本 OpenZFS
+  用户态）；能引导 ZFS 根的再实现 `distro_build_initramfs 内核release 输出路径`（装 zfs-initramfs 并做 initramfs）
+  （目前只有 debian；其余发行版配 zfs 在 dry-run 就报错）。可选 `distro_add_package_source 名 密钥 URI 组件`
+  （第三方 apt 源，incus 用）。
   `_adapt_local_d`：把板子 `files/` 覆盖进来的 OpenRC `/etc/local.d/*.start` 在 systemd 发行版上转成 oneshot 单元（Alpine no-op）。
 - **fs_\***（`lib/fs/<type>.sh`）：`fs_env_summary / _check_config / _check_host / _build_modules / _format /
   _mount / _release / _install / _root_cmdline / _fstab_root`；`fs_install` 可设 `ROOTFS_INITRD`，启动方式把它装到内核旁边。
+- **profile_\***（`lib/profile/<profile>.sh`，`PROFILE` 默认 base）：`profile_env_summary / _check_config / _check_host /
+  _kernel_contracts / _build_modules / _install`，可设 `PROFILE_IMAGE_TAG PROFILE_IMAGE_SIZE`。`_install` 在 `distro_finalize` 前跑；
+  需要的发行版能力用 `declare -F` 查可选函数，缺了在 dry-run 就拒绝。
 - **board_\* 钩子**（可选）：`board_inject_sources / _build_modules / _install_modules /
   _install_userspace / _configure_runtime / _install_extras`；pipeline 用 `board_hook <name>` 调，未定义即 no-op。
   源码注入按 `board_inject_uboot_sources / board_inject_kernel_sources / board_prepare_modules` 拆分，
@@ -61,6 +71,12 @@ work/  out/                          源码树工作区 / 成品
   `IFS=' ' read -r -a arr <<< "$list"; for x in "${arr[@]}"`。（之前固件 strip、服务 enable 都栽在这。）
 - **内核 = defconfig + 片段 merge_config**：顺序载重（distro 基线在前，essentials/vendor/SoC/board/leds/docker/modern 在后，
   后者覆盖前者重新强制内建）；**不要加 `-r`**；`CONFIG_DRM_PANTHOR=m` 必须是模块。改内核选项 = 改 `kconfig/*.fragment`，不要回到命令式。
+- **能力合约 `kconfig/*.contract`**：profile 的合约紧跟 distro 基线作为请求合并（构建目录里生成 `<名>.contract.request`，
+  `=m` 若前面已 `=y` 就不写，**绝不降级内建**），`olddefconfig` 后逐条核对最终 `.config`，不符即停；无法解析的行也算违约。
+  片段把合约要的东西关掉 = 构建失败（这是门禁在工作，改片段或合约，别绕过）。`dae.contract` 与 vyos-rockchip 的
+  `73-dae.config` 保持一致，另加 `NETKIT`（dae v2 首选 netkit，缺了退回 veth 兼容模式，真机日志可见），
+  不含模块 BTF（`modern.fragment` 有意关着）。BTF 门禁与 profile 无关：`.config` 要 BTF，vmlinux
+  就必须真有 `.BTF` 段（pahole 缺失会被 kbuild 静默丢掉）。
 - **内核默认增量编译**（不删 build 目录，`make` 只编改动）；`CLEAN_KERNEL=1` 从头编；`SKIP_BUILD=1` 跳过 uboot+内核。
 - **栈 ulimit / `Argument list too long`**：distro 级内核 ~4000+ 模块，modfinal 的 argv 很长；某些会话 `ulimit -s` 软限只有
   ~12MB → execve 上限=栈/4≈3.1MB → 在 `.module-common.o` 炸 `Argument list too long`。`scripts/build.sh` 启动即
@@ -99,15 +115,28 @@ work/  out/                          源码树工作区 / 成品
   建，构建机内核要有 zfs 模块（容器里要在宿主上 `modprobe zfs`）；以临时名 `arm-packer-<pid>` 导入，永不与宿主的
   `rpool` 冲突，结束时 trim + 导出。zfs-initramfs 依赖 `zfs-modules | zfs-dkms`，由空包 `arm-packer-zfs-modules`
   声明满足。`/etc/hostid` 随镜像固定（initramfs 与系统必须一致），不要在 finalize 里删。
+- **Incus（`PROFILE=incus`，`docs/incus.md`）**：只用 Debian、只用 ZFS 存储，**不提供 dir 退路**（用户明确要求）。ZFS 根 →
+  数据集 `rpool/incus`；ext4 根（U-Boot 板）→ `grow-rootfs` 按 `/etc/default/grow-rootfs` 把根停在 8G、余下建分区，
+  `incus-init` 用本板新生成的 hostid 建池 `incus`；盘 <16G 明确失败。**数据分区的起点必须显式给在根分区之后**：
+  `sfdisk --append` 默认会填进根分区前面的空隙，而 U-Boot 板的引导程序就在那里（`make test-grow` 曾抓到）。
+  br0 不默认配（用户要求自己配，文档给做法）。ARC 每次开机设为内存 1/4。`incusbr0` 网段由 machine-id 推出、只避开
+  本机已有路由，**不要改回 Incus 的 `auto`**：它靠 ping/TCP 探测选网段，遇到对所有连接都应答的透明代理会全部判占用而失败。
+  Debian 的 `contrib`（zfsutils 所在）由 `distro_install_zfs` 按需加入，不再看根文件系统类型。
+  排在 `zfs-import.target` 之前的单元（如 ARC 上限）**必须 `DefaultDependencies=no`**：默认依赖让它排在 sysinit 之后，
+  而 import → zfs-mount → local-fs → firstboot-grow → sysinit，成环后 systemd 会悄悄删掉首启扩容或 local-fs（QEMU 实测）。
+  启动测试要 grep 控制台的 `ordering cycle`。
 
 ## 验证手段
 - 改完先 `bash -n` 全部脚本 + 各板 `--dry-run`（看 vendor/SoC、分区表、片段列表与顺序、钩子、镜像名、IMAGE_SIZE）。
 - 真验证镜像：先 `xz -dk out/X.img.xz`，再 `sudo losetup --read-only -fP --show out/X.img` 只读挂载抽查（firmware、keyring、grow 单元、hostname、modules 大小）。
 - `make test-image`：真实 XZ 压缩/解压、禁用压缩及失败保留旧包/原图回归，不写磁盘设备。
+- `make test-kernel`：含全部板 × 发行版 × incus 的 dry-run 矩阵与合约语义单测。
+- `make test-grow IMAGE=<U-Boot 板 ext4 根镜像>`（root）：首启扩容 + Incus ZFS 分区在 loop 盘上实测（MBR/GPT/小盘），逐字节核对引导区。
 - 内核语义无损：`--stop-after-kconfig` 后 diff 新旧 `.config`。
 
 ## 加新东西
 - **加板**：丢 `boards/<board>/board.conf`（+ 需要时 `hooks.sh`/`kernel.fragment`/资源），引擎零改动。
 - **加发行版**：写 `lib/distro/<name>.sh` 实现 `distro_*` 契约（systemd 系直接复用 `lib/distro/common/systemd.sh`），引擎零改动。
+- **加用途**：写 `lib/profile/<name>.sh` 实现 `profile_*` 契约（照 `base.sh`），内核依赖写成 `kconfig/<名>.contract`，引擎零改动。
 
 注：仓库目录名是 `rockchip/alpine`（历史），但现已多厂商多发行版；别被名字误导。

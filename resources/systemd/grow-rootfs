@@ -2,10 +2,24 @@
 # Grow the root partition to fill the disk, then what lives on it (ext4 online
 # resize, or the ZFS pool's device), then disable itself. Uses sfdisk + partx
 # (util-linux) and resize2fs (e2fsprogs) or zpool: all in base, no network.
+#
+# /etc/default/grow-rootfs may reserve the rest of the disk for data: with
+# ROOT_SIZE and DATA_PARTITION set, a root that is not ZFS grows only to
+# ROOT_SIZE and the space after it becomes a new partition (GPT name
+# DATA_PARTITION, type DATA_TYPE_GPT or DATA_TYPE_DOS), recorded by PARTUUID in
+# /var/lib/misc/<DATA_PARTITION>.partition. A disk with less than DATA_MIN left
+# over keeps the plain behaviour. A ZFS root ignores all of it: its pool takes
+# the disk and shares it out through datasets.
 set -u
 flag=/var/lib/misc/.rootfs-grown
 [ -f "$flag" ] && exit 0
 mkdir -p /var/lib/misc
+ROOT_SIZE='' DATA_PARTITION='' DATA_MIN=8G
+DATA_TYPE_GPT=6A898CC3-1DD2-11B2-99A6-080020736631 DATA_TYPE_DOS=bf
+# shellcheck source=/dev/null
+[ -r /etc/default/grow-rootfs ] && . /etc/default/grow-rootfs
+log() { logger -t grow-rootfs "$*" 2>/dev/null || true; echo "grow-rootfs: $*"; }
+
 read -r src fstype < <(findmnt -no SOURCE,FSTYPE /)
 if [ "$fstype" = zfs ]; then
   # The pool's only device, by its kernel name (the dataset is pool/...).
@@ -24,15 +38,62 @@ fi
 partno=$(cat "$sys/partition")
 disk=/dev/$(basename "$(dirname "$(readlink -f "$sys")")")
 [ -b "$part" ] && [ -b "$disk" ] && [ -n "$partno" ] || exit 0
-# Extend the last partition to the end of the disk (handles MBR + GPT; sfdisk
-# relocates the GPT backup header). partx -u updates the in-use partition size.
-echo ', +' | sfdisk -N "$partno" --no-reread --force "$disk" >/dev/null 2>&1 || true
+
+# How far the root goes: the whole disk, or ROOT_SIZE with room for data after it.
+size=', +'
+data=''
+if [ "$fstype" != zfs ] && [ -n "$ROOT_SIZE" ] && [ -n "$DATA_PARTITION" ]; then
+  start=$(( $(cat "$sys/start") * 512 ))
+  root=$(numfmt --from=iec "$ROOT_SIZE")
+  have=$(( $(cat "$sys/size") * 512 ))
+  [ "$have" -gt "$root" ] && root=$have
+  left=$(( $(blockdev --getsize64 "$disk") - start - root - 2 * 1024 * 1024 ))
+  if [ "$left" -ge "$(numfmt --from=iec "$DATA_MIN")" ]; then
+    data=$DATA_PARTITION
+    [ "$have" -lt "$root" ] && size=", $((root / 512))" || size=''
+    # The data partition starts right after the root, 1 MiB aligned. Never in a
+    # gap before it: on U-Boot boards that is where the bootloader lives.
+    data_start=$(( ((start + root) / 512 + 2047) / 2048 * 2048 ))
+  else
+    log "only $((left / 1048576)) MiB beyond a ${ROOT_SIZE} root, less than DATA_MIN=${DATA_MIN}: no ${DATA_PARTITION} partition, the root takes the disk"
+  fi
+fi
+
+# Extend the root (handles MBR + GPT; sfdisk moves the GPT backup header to the
+# end of the disk first). partx -u updates the in-use partition size.
+label=$(blkid -p -s PTTYPE -o value "$disk" 2>/dev/null)
+[ "$label" = gpt ] && sfdisk --relocate gpt-bak-std "$disk" >/dev/null 2>&1
+[ -n "$size" ] && { echo "$size" | sfdisk -N "$partno" --no-reread --force "$disk" >/dev/null 2>&1 || true; }
 partx -u "$disk" >/dev/null 2>&1 || partprobe "$disk" >/dev/null 2>&1 || true
 if [ "$fstype" = zfs ]; then
   zpool online -e "$pool" "$part" >/dev/null 2>&1 || true
 else
   resize2fs "$part" >/dev/null 2>&1 || true
 fi
+
+# The data partition: everything after the root, announced to the kernel and
+# recorded by PARTUUID, which stays the same whatever the disk is called.
+if [ -n "$data" ]; then
+  type=$DATA_TYPE_DOS; [ "$label" = gpt ] && type=$DATA_TYPE_GPT
+  new=$((partno + 1))
+  if echo "$data_start,,$type" | sfdisk --append --no-reread --force "$disk" >/dev/null 2>&1; then
+    [ "$label" = gpt ] && sfdisk --part-label "$disk" "$new" "$data" >/dev/null 2>&1
+    partx -a --nr "$new" "$disk" >/dev/null 2>&1 || true
+    dev=''
+    for p in "$(dirname "$(readlink -f "$sys")")"/*/partition; do
+      [ "$(cat "$p" 2>/dev/null)" = "$new" ] && dev=/dev/$(basename "$(dirname "$p")")
+    done
+    uuid=$( [ -b "$dev" ] && blkid -p -s PART_ENTRY_UUID -o value "$dev" 2>/dev/null)
+    if [ -n "$uuid" ]; then
+      echo "/dev/disk/by-partuuid/$uuid" > "/var/lib/misc/$data.partition"
+      log "$data partition $dev ($(( $(blockdev --getsize64 "$dev") / 1048576 )) MiB, PARTUUID $uuid)"
+    else
+      log "the $data partition was written but the kernel does not show it (${dev:-no device})"
+    fi
+  else
+    log "could not append the $data partition to $disk"
+  fi
+fi
 : > "$flag"
-logger -t grow-rootfs "rootfs ($part) grown to fill $disk" 2>/dev/null || true
+log "rootfs ($part) grown on $disk"
 exit 0

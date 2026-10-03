@@ -10,7 +10,7 @@
 #
 # The modules come from the OpenZFS release pinned in config/versions.conf,
 # built with the image's kernel and installed with its other modules; the distro
-# supplies the userspace of the same release (distro_install_zfs). The pool is
+# supplies the userspace of the same release (lib/zfs.sh). The pool is
 # created on the build host, whose kernel therefore needs ZFS too: it is created
 # under a temporary name, so it never clashes with a pool of the host's own, and
 # limited to a feature set every OpenZFS since 2.2 imports, so a host newer than
@@ -21,12 +21,11 @@
 #
 # shellcheck disable=SC2034  # ROOTFS_INITRD is read by the boot scheme.
 
+# shellcheck source=lib/zfs.sh
+source "${LIB_DIR}/zfs.sh"
+
 ZFS_POOL="${ZFS_POOL:-rpool}"
 ZFS_POOL_COMPATIBILITY="${ZFS_POOL_COMPATIBILITY:-openzfs-2.2-linux}"
-# Pool properties, then the dataset properties every dataset inherits; xattr=sa
-# and posixacl serve journald and containers.
-ZFS_POOL_PROPERTIES="${ZFS_POOL_PROPERTIES:-ashift=12 autotrim=on}"
-ZFS_DATASET_PROPERTIES="${ZFS_DATASET_PROPERTIES:-compression=zstd atime=off xattr=sa acltype=posixacl dnodesize=auto}"
 ZFS_BUILD_POOL="arm-packer-$$"   # the pool's name while the build host has it imported
 ZFS_ROOT_DATASET="${ZFS_POOL}/ROOT/${DISTRO}"
 
@@ -49,34 +48,7 @@ fs_check_host() {
   log "Build host OpenZFS $(< /sys/module/zfs/version); pool feature set ${ZFS_POOL_COMPATIBILITY}."
 }
 
-# The release tarball, cached by checksum, unpacked afresh and configured against
-# the kernel just built, so the modules always match it.
-fs_build_modules() {
-  local tarball="${DOWNLOAD_DIR}/zfs-${OPENZFS_VERSION}.tar.gz" src
-  src="$(_zfs_source_dir)"
-  if ! sha256_matches "${tarball}" "${OPENZFS_SHA256}"; then
-    section "Fetching OpenZFS ${OPENZFS_VERSION}"
-    aria2_download "${OPENZFS_URL}" "${tarball}" || fatal "OpenZFS download failed: ${OPENZFS_URL}"
-    sha256_matches "${tarball}" "${OPENZFS_SHA256}" || fatal "OpenZFS checksum mismatch: ${tarball}"
-  fi
-  section "Building OpenZFS ${OPENZFS_VERSION} kernel modules"
-  rm -rf "${src}"
-  tar -xzf "${tarball}" -C "$(dirname "${src}")"
-  [[ -f "${src}/META" ]] || fatal "OpenZFS tarball did not unpack to ${src}"
-
-  local kernel maximum
-  kernel="$(make -s -C "${KERNEL_SRC_DIR}" kernelversion)"
-  maximum="$(awk '$1 == "Linux-Maximum:" { print $2 }' "${src}/META")"
-  [[ "$(printf '%s\n' "${kernel%.*}" "${maximum}" | sort -V | tail -n 1)" == "${maximum}" ]] \
-    || fatal "OpenZFS ${OPENZFS_VERSION} supports Linux up to ${maximum}, not ${kernel}; pin a newer release in config/versions.conf."
-
-  (cd "${src}" && run ./configure --quiet --with-config=kernel --host=aarch64-linux-gnu \
-    --with-linux="${KERNEL_SRC_DIR}" --with-linux-obj="${KERNEL_BUILD_DIR}" \
-    KERNEL_ARCH=arm64 KERNEL_CROSS_COMPILE=aarch64-linux-gnu-) || fatal "OpenZFS configure failed against Linux ${kernel}."
-  run make -C "${src}/module" -j"${JOBS}"
-  [[ -f "${src}/module/zfs.ko" && -f "${src}/module/spl.ko" ]] || fatal "OpenZFS build produced no zfs.ko/spl.ko."
-  log "OpenZFS ${OPENZFS_VERSION} modules built for Linux ${kernel}."
-}
+fs_build_modules() { zfs_build_modules; }
 
 # The pool and its datasets, then exported: fs_mount imports it like any disk.
 # Only the boot environment has a mountpoint; the pool's own dataset mounts
@@ -113,15 +85,9 @@ fs_release() {
 # The modules into the rootfs with the kernel's own, the distro's userspace on
 # top, then the initramfs that imports the pool at boot.
 fs_install() {
-  local krel src
+  local krel
+  zfs_install
   krel="$(kernel_release)"
-  src="$(_zfs_source_dir)"
-  section "Installing OpenZFS ${OPENZFS_VERSION} modules for ${krel}"
-  [[ -f "${src}/module/zfs.ko" ]] || fatal "OpenZFS modules were not built (${src}/module)."
-  run_sudo make -C "${src}/module" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-    INSTALL_MOD_PATH="${MOUNTPOINT_ROOT}" INSTALL_MOD_STRIP=1 modules_install
-  run_sudo depmod -b "${MOUNTPOINT_ROOT}" "${krel}"
-  distro_install_zfs "${OPENZFS_VERSION}"
   ROOTFS_INITRD="${BUILD_DIR}/initrd.img-${krel}"
   distro_build_initramfs "${krel}" "${ROOTFS_INITRD}"
 }
@@ -129,6 +95,5 @@ fs_install() {
 fs_root_cmdline() { printf 'root=ZFS=%s rw\n' "${ZFS_ROOT_DATASET}"; }
 fs_fstab_root()   { :; }   # the initramfs mounts the root; the pool knows its datasets
 
-_zfs_source_dir() { printf '%s/zfs-%s\n' "${BUILD_DIR}" "${OPENZFS_VERSION}"; }
 # A dataset of the pool as the build host names it (rpool/x → arm-packer-PID/x).
 _zfs_build_name() { printf '%s/%s\n' "${ZFS_BUILD_POOL}" "${1#*/}"; }

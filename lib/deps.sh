@@ -10,7 +10,8 @@ install_dependencies() {
     tar xz aria2c blkid rsync cpio perl awk sed grep findmnt mount umount dd kpartx mkfs.vfat
     qemu-aarch64-static
   )
-  [[ "${MODERN_KERNEL:-1}" != 1 ]] || commands+=(pahole)
+  # BTF: pahole generates it, readelf proves it landed (kernel_validate_btf).
+  [[ "${MODERN_KERNEL:-1}" != 1 ]] || commands+=(pahole readelf)
   for cmd in "${commands[@]}"; do
     have "${cmd}" || missing+=("${cmd}")
   done

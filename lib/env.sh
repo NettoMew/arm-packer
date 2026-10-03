@@ -26,8 +26,13 @@ if [[ -z "${BOARD_NICS:-}" ]]; then
 fi
 BOARD_KERNEL_FRAGMENTS="${BOARD_KERNEL_FRAGMENTS:-}"
 
-# Image name = <board prefix>-<distro>-<linux kernel version>.img, e.g.
-# radxa-e20c-alpine-<version>.img / radxa-rock5c-archlinux-<version>.img. The kernel
+# Profile axis: what the machine is for (lib/profile/<PROFILE>.sh): kernel
+# capability contracts plus the userspace of that role. "base" is the plain image.
+PROFILE="${PROFILE:-base}"
+
+# Image name = <board prefix>-<distro>[-<profile tag>]-<linux kernel version>.img,
+# e.g. radxa-e20c-alpine-<version>.img / radxa-dragon-q8b-debian-incus-<version>.img;
+# scripts/build.sh appends the profile's tag once the profile is loaded. The kernel
 # version is resolved from the fetched source, so the name is FINALIZED after fetch
 # (finalize_image_name in lib/sources.sh). A user-pinned IMAGE_NAME overrides.
 IMAGE_NAME_PREFIX="${BOARD_IMAGE_PREFIX}-${DISTRO}"
@@ -175,3 +180,5 @@ ALPINE_REPO_DIR=""
 APK_STATIC=""
 # Kernel fragment list, assembled by lib/kernel.sh from vendor + SoC + board + features.
 KERNEL_FRAGMENT_LIST=()
+# The profile's capability contracts (kconfig/*.contract), checked against the .config.
+KERNEL_CONTRACT_LIST=()

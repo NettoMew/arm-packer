@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 # scripts/build.sh — orchestrator for the mainline SBC firmware builder
-# (board × vendor × distro: Rockchip/Allwinner/Qualcomm × Alpine/Arch/Debian/eweOS).
+# (board × vendor × distro × profile: Rockchip/Allwinner/Qualcomm ×
+# Alpine/Arch/Debian/eweOS × base/incus).
 #
-# Pipeline: parse flags → load board config → source vendor plugin + board hooks
-# → derive paths → run the build pipeline. Per-board knowledge lives in
-# boards/<board>/board.conf (+ optional hooks.sh); vendor boot-chain differences
-# in lib/vendor/<vendor>.sh (+ the lib/boot/*.sh scheme it uses); the root
-# filesystem in lib/fs/<type>.sh; kernel options in kconfig/*.fragment. The
-# engine itself (lib/*.sh) has no board/vendor conditionals.
+# Pipeline: parse flags → load board config → source vendor, distro, fs and
+# profile plugins + board hooks → derive paths → run the build pipeline.
+# Per-board knowledge lives in boards/<board>/board.conf (+ optional hooks.sh);
+# vendor boot-chain differences in lib/vendor/<vendor>.sh (+ the lib/boot/*.sh
+# scheme it uses); the root filesystem in lib/fs/<type>.sh; what the machine is
+# for in lib/profile/<profile>.sh; kernel options in kconfig/*.fragment and the
+# capabilities a profile relies on in kconfig/*.contract. The engine itself
+# (lib/*.sh) has no board/vendor/distro/profile conditionals.
 #
 # Usage:
 #   BOARD=opiz3 scripts/build.sh                 # build (default BOARD=e20c)
 #   BOARD=m28k M28K_OLED=0 scripts/build.sh      # variant via env knob
+#   BOARD=dragon-q8b DISTRO=debian PROFILE=incus scripts/build.sh   # an Incus host
 #   BOARD=rock5c scripts/build.sh --dry-run      # resolve + print config, no build
 #   BOARD=e20c scripts/build.sh --stop-after-kconfig   # build up to kernel .config
 #   BOARD=e20c scripts/build.sh --kernel-check        # isolated patches/config/DTB
@@ -125,13 +129,21 @@ FS_LIB="${LIB_DIR}/fs/${ROOTFS_TYPE}.sh"
 source "${FS_LIB}"
 fs_check_config
 
+# Profile plugin (what the machine is for: kernel contracts + the role's userspace).
+PROFILE_LIB="${LIB_DIR}/profile/${PROFILE}.sh"
+[[ -f "${PROFILE_LIB}" ]] || fatal "Unknown PROFILE=${PROFILE} (no ${PROFILE_LIB}; have: $(cd "${LIB_DIR}/profile" && echo *.sh | sed 's/\.sh//g'))"
+# shellcheck source=/dev/null
+source "${PROFILE_LIB}"
+profile_check_config
+IMAGE_NAME_PREFIX+="${PROFILE_IMAGE_TAG:+-${PROFILE_IMAGE_TAG}}"
+
 # Optional per-board hooks (source injection, AIC8800, OLED, …).
 [[ -f "${BOARD_ASSETS}/${BOARD}/hooks.sh" ]] && { # shellcheck source=/dev/null
   source "${BOARD_ASSETS}/${BOARD}/hooks.sh"; }
 
-# Finalize the image size from the distro default (Alpine 1G / Arch 4G), unless
-# the user pinned IMAGE_SIZE explicitly.
-IMAGE_SIZE="${IMAGE_SIZE:-${DISTRO_IMAGE_SIZE:-1G}}"
+# Finalize the image size: a profile's need first, then the distro default
+# (Alpine 1G / Arch 4G), unless the user pinned IMAGE_SIZE explicitly.
+IMAGE_SIZE="${IMAGE_SIZE:-${PROFILE_IMAGE_SIZE:-${DISTRO_IMAGE_SIZE:-1G}}}"
 # Provisional path for early logging; finalize_image_name() rewrites IMAGE_NAME/
 # IMAGE_PATH with the resolved kernel version after the source is fetched.
 IMAGE_PATH="${OUTPUT_DIR}/${IMAGE_NAME:-${IMAGE_NAME_PREFIX}-pending.img}"
@@ -151,11 +163,12 @@ trap cleanup EXIT
 
 # ------------------------------ Dry run --------------------------------------
 if [[ "${DRY_RUN}" == "1" ]]; then
-  section "DRY RUN — resolved configuration for BOARD=${BOARD} DISTRO=${DISTRO}"
+  section "DRY RUN — resolved configuration for BOARD=${BOARD} DISTRO=${DISTRO} PROFILE=${PROFILE}"
   log "vendor/soc: ${BOARD_VENDOR}/${BOARD_SOC}"
   distro_env_summary
   vendor_env_summary
   fs_env_summary
+  profile_env_summary
   log "kernel source: ${KERNEL_REPO} @ ${KERNEL_REF}"
   if [[ -n "${KERNEL_ACTION}" ]]; then
     kernel_require_release_tag "${KERNEL_REF}"
@@ -175,6 +188,11 @@ if [[ "${DRY_RUN}" == "1" ]]; then
   kernel_fragment_list
   log "kernel fragments (${#KERNEL_FRAGMENT_LIST[@]}, merge order):"
   for f in "${KERNEL_FRAGMENT_LIST[@]}"; do log "  - ${f#"${PROJECT_DIR}/"}"; done
+  log "kernel contracts checked against the final .config: ${#KERNEL_CONTRACT_LIST[@]}"
+  for f in "${KERNEL_CONTRACT_LIST[@]}"; do
+    [[ -f "${f}" ]] || fatal "Kernel contract missing: ${f}"
+    log "  - ${f#"${PROJECT_DIR}/"}"
+  done
   log "board hooks defined:"
   local_any=0
   for h in inject_sources inject_uboot_sources inject_kernel_sources prepare_modules build_modules install_modules install_userspace configure_runtime install_extras; do

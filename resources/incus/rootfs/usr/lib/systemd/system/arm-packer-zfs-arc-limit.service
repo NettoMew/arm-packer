@@ -1,0 +1,19 @@
+[Unit]
+Description=Cap the ZFS ARC at a quarter of RAM
+# Early, like the ZFS units around it: before the pools are imported, so it must
+# not wait for sysinit.target (local-fs.target, and first-boot growth with it,
+# come after the import). The module comes from the initramfs (ZFS root) or
+# zfs-load-module.service.
+DefaultDependencies=no
+After=zfs-load-module.service
+Before=zfs-import.target incus.service shutdown.target
+Conflicts=shutdown.target
+ConditionPathExists=/sys/module/zfs/parameters/zfs_arc_max
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/arm-packer/zfs-arc-limit
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

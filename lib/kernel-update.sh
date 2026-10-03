@@ -23,7 +23,7 @@ kernel_check_dependencies() {
   local -a required=(git make gcc ld pkg-config aarch64-linux-gnu-gcc
     aarch64-linux-gnu-ld aarch64-linux-gnu-objcopy bc bison flex openssl
     perl python3 awk sed grep find sort xargs sha256sum tee mktemp)
-  [[ "${MODERN_KERNEL}" == 1 ]] && required+=(pahole)
+  [[ "${MODERN_KERNEL}" == 1 ]] && required+=(pahole readelf)
   for cmd in "${required[@]}"; do
     have "${cmd}" || fatal "Kernel validation needs '${cmd}'. Install build dependencies first; this command never runs sudo."
   done
@@ -52,6 +52,7 @@ kernel_validation_steps() {
       CROSS_COMPILE=aarch64-linux-gnu- "${KERNEL_DTB}"
   else
     fs_build_modules
+    profile_build_modules
     board_hook build_modules
   fi
   dtb="${KERNEL_BUILD_DIR}/arch/arm64/boot/dts/${KERNEL_DTB}"
@@ -67,7 +68,7 @@ kernel_validation_steps() {
   {
     printf '%s\n' 'format=1' 'status=passed' "mode=${mode}" \
       "repo=${KERNEL_REPO}" "ref=${KERNEL_REF}" "commit=${commit}" \
-      "version=${version}" "board=${BOARD}" "distro=${DISTRO}" \
+      "version=${version}" "board=${BOARD}" "distro=${DISTRO}" "profile=${PROFILE}" \
       "defconfig=${KERNEL_DEFCONFIG}" "distro_kernel=${DISTRO_KERNEL}" \
       "docker_kernel=${DOCKER_KERNEL}" "modern_kernel=${MODERN_KERNEL}" \
       "dtb=${KERNEL_DTB}" "inputs_sha256=${inputs}" \
@@ -81,7 +82,7 @@ kernel_validation_steps() {
     fi
   } > "${WORKSPACE}/validation.txt.tmp"
   mv -- "${WORKSPACE}/validation.txt.tmp" "${WORKSPACE}/validation.txt"
-  log "Validation passed (${mode}, ${BOARD}/${DISTRO}); this is NOT a hardware test."
+  log "Validation passed (${mode}, ${BOARD}/${DISTRO}/${PROFILE}); this is NOT a hardware test."
   log "Report: ${WORKSPACE}/validation.txt"
 }
 
@@ -126,7 +127,7 @@ kernel_promote() {
   [[ -f "${report}" ]] || fatal "Validation report not found: ${report}"
   while IFS='=' read -r key value; do
     case "${key}" in
-      format|status|mode|repo|ref|commit|version|board|distro|defconfig|distro_kernel|docker_kernel|modern_kernel|dtb|inputs_sha256|config_sha256|dtb_sha256|image_sha256|date|aic8800_repo|aic8800_commit)
+      format|status|mode|repo|ref|commit|version|board|distro|profile|defconfig|distro_kernel|docker_kernel|modern_kernel|dtb|inputs_sha256|config_sha256|dtb_sha256|image_sha256|date|aic8800_repo|aic8800_commit)
         [[ ! -v "fields[${key}]" ]] || fatal "Duplicate report field: ${key}"
         fields["${key}"]="${value}" ;;
       *) fatal "Invalid report field: ${key}" ;;

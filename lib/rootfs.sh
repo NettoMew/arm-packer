@@ -3,7 +3,8 @@
 # (package manager, init system, network) live behind the distro_* contract
 # (lib/distro/<distro>.sh); the boot scheme (kernel placement + loader config)
 # behind vendor_install_boot (lib/boot/*.sh); what the root filesystem needs to
-# boot (modules, initramfs, root= and its fstab line) behind fs_* (lib/fs/*.sh).
+# boot (modules, initramfs, root= and its fstab line) behind fs_* (lib/fs/*.sh);
+# the machine's role (e.g. an Incus host) behind profile_* (lib/profile/*.sh).
 # This file owns only the parts shared by every distro and every boot scheme:
 # modules, the kernel command line, fstab, hostname, root access, firmware and
 # the board overlays.
@@ -40,6 +41,7 @@ populate_rootfs() {
   distro_enable_base_services
   configure_root_access
   distro_install_resize_service
+  profile_install                 # the machine's role on top of the base system (e.g. Incus)
   distro_finalize                 # distro wrap-up (e.g. Arch first-boot oneshot)
 
   install_swupdate               # optional signed offline updater; no service

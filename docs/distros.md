@@ -69,7 +69,8 @@ netinst 装出来的那一层）为底，再显式列出方案依赖的包；不
   `dpkg-db-backup`、`e2scrub*` 定时任务，保留 `fstrim.timer`。
 - **不会装回发行版内核**：`preferences.d` 把 `linux-image-*`、`linux-headers-*`、dracut（`dracut`、`dracut-core`；initramfs-tools 要用的 `dracut-install` 放行）与 `zfs-dkms`
   钉为 -1（initramfs-tools 放行：ZFS 根要靠它做 initramfs）。
-- **ZFS 根**（`ROOTFS_TYPE=zfs`，dragon-q8b 默认）：源加 `contrib`，装 `zfsutils-linux` + `zfs-initramfs`；
+- **ZFS 用户态**（ZFS 根，或 `PROFILE=incus` 的 ZFS 池）：`distro_install_zfs` 按需把 `contrib` 加进源，装
+  `zfsutils-linux`。**ZFS 根**（`ROOTFS_TYPE=zfs`，dragon-q8b 默认）另装 `zfs-initramfs`；
   后者依赖的 `zfs-modules | zfs-dkms` 由构建期生成的空包 `arm-packer-zfs-modules`（`Provides: zfs-modules`）
   满足，模块本身是引擎随内核编的同版本 OpenZFS。initramfs 由 `mkinitramfs` 为镜像内核生成（`MODULES=list`：
   只含钩子加的 ZFS 模块与导入工具，约十几 MB），放在 ESP 内核旁，不进 `/boot`，板上 `update-initramfs` 不会动它。

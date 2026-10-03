@@ -21,6 +21,8 @@ Radxa E20C · Widora MangoPi M28K · Radxa ROCK 5C · Orange Pi Zero 3 · Radxa 
 - **主线 Linux 稳定版**（标签固定在 [`config/versions.conf`](config/versions.conf)）— 内核选项是 `kconfig/*.fragment` 可组合片段，而非命令式补丁。
 - **四选一根文件系统** — `alpine`（apk + OpenRC，~170M）、`archlinux`（pacman + systemd，~660M）、
   `debian`（最小化 trixie：Debian 基础系统 + systemd + ifupdown，无 dbus）或 `eweos`（musl + busybox + pacman + dinit，rolling）。
+- **按用途出镜像**（`PROFILE`）— `incus`：任一板子变成 Incus 主机（系统容器 / OCI / KVM 虚拟机 + Web UI），
+  存储只用 ZFS，内核按 Incus 与 dae（eBPF/BTF）能力合约编，合约在 `.config` 定型后逐条核对。
 
 成品是可直接 `dd` 到 eMMC / SD 的整盘镜像，`xz -T0 -6` 压成
 **`<板>-<发行版>-<内核版本>.img.xz`**，首启自动扩容。
@@ -37,6 +39,7 @@ DISTRO=debian make dragon-q8b  # Radxa Dragon Q8B（Qualcomm SC8280XP，UEFI + s
 make all                       # 全部板子
 
 DISTRO=archlinux make rock5c   # 换发行版（alpine / archlinux / debian / eweos）
+DISTRO=debian PROFILE=incus make dragon-q8b   # Incus 主机（ZFS 存储、Web UI :8443）
 make rock5c-dry                # 只解析配置、打印片段/钩子，不构建（秒级）
 ```
 
@@ -67,6 +70,7 @@ xz -dc out/<镜像>.img.xz | sudo dd of=/dev/sdX bs=4M conv=fsync iflag=fullbloc
 | [SWUpdate 测试镜像](docs/swupdate.md) | 上游 APK、签名验证、ROCK5C 首个测试目标及当前边界 |
 | [支持的板子](docs/boards.md) | 镜像命名、各板细节 |
 | [发行版](docs/distros.md) | alpine / archlinux / debian / eweos 对照、各自专项处理 |
+| [Incus 主机](docs/incus.md) | `PROFILE=incus`：ZFS 存储、首启初始化、Web UI、自建 br0、内核能力合约与 dae |
 | [RK3582 开核](docs/rk3582-unlock.md) | ft_system_setup 补丁原理、实测 7 核 |
 | [Allwinner H618](docs/allwinner.md) | 开源引导链、SPL/MBR/Panfrost |
 | [架构](docs/architecture.md) | 插件契约、目录结构、内核片段 |

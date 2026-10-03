@@ -1,5 +1,21 @@
 # 进度与已知限制
 
+## Incus 主机 profile（2026-10-04）
+
+- 新增用途轴 `PROFILE`（`lib/profile/`，默认 `base` 不改变任何现有镜像）与内核能力合约 `kconfig/*.contract`；
+  `PROFILE=incus`：Zabbly stable 的 Incus 7.5.1 + Web UI + OCI，存储只用 ZFS，首启离线初始化，内核按 incus 与 dae
+  合约编，`.config` 定型后逐条核对、编完核对 BTF。详见 [Incus 主机](incus.md)。
+- 离线验证：全部 5 板 × 4 发行版 × incus 的 dry-run 矩阵与合约语义单测（`make test-kernel`）；5 块板子 Debian + incus 的真实
+  `.config` 都满足两份合约；`make test-grow` 在 loop 盘上实测 MBR/GPT/小盘的首启分区并逐字节核对引导区（期间抓到并修掉
+  `sfdisk --append` 会把数据分区放进根分区前空隙、覆盖 U-Boot 的问题）。
+- 构建验证（`ssh andy`）：Dragon Q8B incus 镜像构建、板级审计与 profile 审计通过（两份合约、vmlinux BTF 10.3 MB、Zabbly
+  钉死的密钥与源、首启单元与配置、构建期不留 Incus 状态）；QEMU virt 上 ZFS 根与 ext4 根两条存储路径都首启到底并起了容器。
+- 真机（Dragon Q8B）：以新的 ZFS 启动环境 `rpool/ROOT/debian-incus` 全新首启，23 项全过——AppArmor、BTF、ZFS 池、Web UI、
+  非特权容器、KVM 虚拟机、OCI 应用容器、dae（netkit 性能模式、eBPF 数据面拦截/放行/卸载）。板子现在默认启动 Incus 系统，
+  原系统 `rpool/ROOT/debian` 留在启动菜单里。明细见 [incus.md](incus.md) 的验证记录。
+- 未覆盖：Rockchip/Allwinner 板子只做了 dry-run 与真实 `.config` 合约核对，没有构建/启动它们的 incus 镜像；
+  ext4 根 + ZFS 分区的路径在 loop 盘与 QEMU 上实测，未在 U-Boot 板实机上跑过。
+
 ## 本轮收尾（2026-09-23）
 
 - 最终采用保留 SD 卡的引导方式，暂停 SPI 模块采购及无 SD 启动研究；保持交付固件和 SD 优先默认顺序，不刷实验性 NVMe-first 固件。

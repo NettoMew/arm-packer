@@ -11,6 +11,7 @@
 #   make e20c SKIP_FETCH=1             # 复用已克隆源码树，迭代更快
 #   make opiz3 ROOT_PASSWORD=secret    # 任意 build.sh 开关都可命令行透传
 #   make opiz3-dry                     # 只解析配置、打印片段/钩子，不构建
+#   make dragon-q8b DISTRO=debian PROFILE=incus   # Incus 主机（见 docs/incus.md）
 
 SHELL := /bin/bash
 BUILD := scripts/build.sh
@@ -33,7 +34,7 @@ BUILD := scripts/build.sh
         rock5c rock5c-stock \
         opiz3 \
         dragon-q8b \
-        clean kernel-version kernel-check kernel-build kernel-promote test-kernel test-swupdate test-image
+        clean kernel-version kernel-check kernel-build kernel-promote test-kernel test-swupdate test-image test-grow
 
 help:
 	@echo '主线 Alpine 固件构建器 —— make <目标>'
@@ -56,9 +57,11 @@ help:
 	@echo '  test-kernel     离线回归测试（不编译真实内核）'
 	@echo '  test-swupdate   更新工具配置/密钥预检回归（不安装）'
 	@echo '  test-image      XZ 打包与失败保护回归（不写磁盘设备）'
+	@echo '  test-grow       首启扩容 + Incus ZFS 分区实测（需 root；IMAGE=某块 U-Boot 板的 ext4 根镜像）'
 	@echo
 	@echo
 	@echo '发行版（DISTRO，默认 alpine；另有 archlinux / debian / eweos）：DISTRO=debian make <板> 产出 *-debian-*.img.xz'
+	@echo '用途（PROFILE，默认 base）：DISTRO=debian PROFILE=incus make <板> 产出 Incus 主机 *-debian-incus-*.img.xz（见 docs/incus.md）'
 	@echo '透传开关示例： make rock5c ROCK5C_UNLOCK=0 / DISTRO=archlinux make opiz3 / make opiz3 SKIP_FETCH=1'
 
 e20c:
@@ -107,6 +110,9 @@ test-kernel:
 
 test-swupdate:
 	bash scripts/test-swupdate-config.sh
+
+test-grow:
+	sudo bash scripts/test-grow-rootfs.sh $(IMAGE)
 
 test-image:
 	bash scripts/test-image-compression.sh

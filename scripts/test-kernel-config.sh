@@ -27,6 +27,62 @@ for conf in boards/*/board.conf; do
   done
 done
 
+# The incus profile on every board: Debian builds an Incus host held to both
+# kernel contracts; the other distros are refused (or a ZFS board refuses first).
+for conf in boards/*/board.conf; do
+  board="${conf#boards/}"; board="${board%/board.conf}"
+  # shellcheck source=/dev/null  # each board.conf in turn
+  prefix="$(. "${conf}"; printf '%s' "${BOARD_IMAGE_PREFIX}")"
+  for plugin in lib/distro/*.sh; do
+    distro="${plugin##*/}"; distro="${distro%.sh}"
+    if output="$(BOARD="${board}" DISTRO="${distro}" PROFILE=incus bash scripts/build.sh --dry-run 2>&1)"; then
+      [[ "${distro}" == debian ]]
+      grep -Fq "${prefix}-debian-incus-<kernelversion>.img (size 4G)" <<< "${output}"
+      grep -Fq 'kernel contracts checked against the final .config: 2' <<< "${output}"
+      grep -Fq '  - kconfig/incus.contract' <<< "${output}"
+      grep -Fq '  - kconfig/dae.contract' <<< "${output}"
+      printf 'PASS incus: %s / %s\n' "${board}" "${distro}"
+    else
+      grep -Eq "DISTRO=${distro} cannot (add|boot a ZFS root)" <<< "${output}"
+      printf 'PASS refused incus: %s / %s\n' "${board}" "${distro}"
+    fi
+  done
+done
+output="$(BOARD=e20c DISTRO=debian PROFILE=no-such bash scripts/build.sh --dry-run 2>&1)" && exit 1
+grep -Fq 'Unknown PROFILE=no-such' <<< "${output}"
+printf 'PASS unknown profile refused\n'
+
+# Contract semantics, on synthetic files: =y built in, =m module or built in,
+# "is not set" off, strings exact, anything else broken; a contract's request
+# never lowers a built-in to a module.
+(
+  source lib/log.sh
+  source lib/kernel.sh
+  t="$(mktemp -d)"; trap 'rm -rf "${t}"' EXIT
+  printf '%s\n' CONFIG_A=y CONFIG_B=m CONFIG_C=y '# CONFIG_D is not set' 'CONFIG_S="x,y"' > "${t}/config"
+  printf '%s\n' '# a comment' '' CONFIG_A=y CONFIG_B=m CONFIG_C=m '# CONFIG_D is not set' \
+    '# CONFIG_E is not set' 'CONFIG_S="x,y"' > "${t}/met"
+  kernel_contract_check "${t}/config" "${t}/met"
+  for broken in CONFIG_B=y CONFIG_D=m CONFIG_E=y '# CONFIG_A is not set' 'CONFIG_S="x"' CONFIG_A=Y 'CONFIG_A = y'; do
+    printf '%s\n' CONFIG_A=y "${broken}" > "${t}/broken"
+    [[ "$(kernel_contract_check "${t}/config" "${t}/broken")" == "${broken}" ]]
+  done
+  printf '# only a comment\n' > "${t}/empty"
+  if kernel_contract_check "${t}/config" "${t}/empty" >/dev/null; then exit 1; fi
+  printf '%s\n' CONFIG_A=m CONFIG_B=m CONFIG_X=m CONFIG_C=y > "${t}/contract"
+  printf '%s\n' CONFIG_B=y '# CONFIG_X is not set' > "${t}/fragment"
+  kernel_contract_request "${t}/contract" "${t}/request" "${t}/config" "${t}/fragment"
+  [[ "$(cat "${t}/request")" == "$(printf '%s\n' CONFIG_X=m CONFIG_C=y)" ]]
+  # The shipped contracts parse cleanly: against an empty .config every line is
+  # reported exactly as written, none silently skipped.
+  printf 'CONFIG_NONE=y\n' > "${t}/none"
+  for c in kconfig/*.contract; do
+    diff <(kernel_contract_check "${t}/none" "${c}" | grep -v ' is not set$') \
+         <(grep -E '^CONFIG_' "${c}") >/dev/null
+  done
+)
+printf 'PASS contract semantics and shipped contracts parse\n'
+
 output="$(KERNEL_REPO=https://example.invalid/linux.git KERNEL_REF=test-kernel \
   BOARD=e20c DISTRO=alpine bash scripts/build.sh --dry-run 2>&1)"
 grep -Fq 'kernel source: https://example.invalid/linux.git @ test-kernel' <<< "${output}"
