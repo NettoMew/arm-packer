@@ -122,8 +122,8 @@ work/  out/                          源码树工作区 / 成品
   `incus-init` 用本板新生成的 hostid 建池 `incus`；盘 <16G 明确失败。**数据分区的起点必须显式给在根分区之后**：
   `sfdisk --append` 默认会填进根分区前面的空隙，而 U-Boot 板的引导程序就在那里（`make test-grow` 曾抓到）。
   br0 不默认配（用户要求自己配，文档给做法）；配方里**别开 `BRIDGE_HOTPLUG=yes`**：udev 抢先 `ifup br0`，udev 里
-  dhcpcd 做不了 chroot，开机拿不到 IPv4（ROCK 5C 实测，手动 ifup 正常、重启才暴露）。ARC 每次开机设为内存 1/4。`incusbr0` 网段由 machine-id 推出、只避开
-  本机已有路由，**不要改回 Incus 的 `auto`**：它靠 ping/TCP 探测选网段，遇到对所有连接都应答的透明代理会全部判占用而失败。
+  dhcpcd 做不了 chroot，开机拿不到 IPv4（ROCK 5C 实测，手动 ifup 正常、重启才暴露）。ARC 每次开机设为内存 1/4。
+  `incusbr0` 网段由 machine-id 推出、只避开本机已有路由，**不要改回 Incus 的 `auto`**：它靠 ping/TCP 探测选网段，遇到对所有连接都应答的透明代理会全部判占用而失败。
   Debian 的 `contrib`（zfsutils 所在）由 `distro_install_zfs` 按需加入，不再看根文件系统类型。
   排在 `zfs-import.target` 之前的单元（如 ARC 上限）**必须 `DefaultDependencies=no`**：默认依赖让它排在 sysinit 之后，
   而 import → zfs-mount → local-fs → firstboot-grow → sysinit，成环后 systemd 会悄悄删掉首启扩容或 local-fs（QEMU 实测）。
