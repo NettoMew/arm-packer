@@ -201,3 +201,22 @@ dae 退出后 223.5.5.5 恢复——证明流量确实经过 dae 的 eBPF 数据
 veth 兼容模式（合约加 `NETKIT`）。
 
 真机上原来的系统 `rpool/ROOT/debian` 仍在，systemd-boot 菜单里可选；Incus 系统的 `@image` 快照是出厂状态。
+
+### 内核更新到 7.2.9（2026-10-04）
+
+按 [内核更新流程](kernel-updates.md) 走，范围 dragon-q8b / debian / incus：
+
+1. `kernel-check v7.2.9`：79 个补丁套上（0037 已删：同样的守卫 7.2.8 以 `5e97d117b79c` 进了 stable），两份合约满足，DTB 编过。
+2. `kernel-build v7.2.9`：全新工作区完整编译内核与 OpenZFS 2.3.9，vmlinux 带 BTF，报告 commit `5fce1616`。
+3. 候选整盘镜像（普通工作区）：板级与 profile 审计、QEMU 首启起容器都通过。
+4. 真机：在运行中的 Incus 系统上做 ZFS 启动环境式升级——快照并克隆出 `rpool/ROOT/debian-incus-7.2.9`
+   （只多 89 MB 新模块），装入候选镜像的内核与模块，在克隆里用本板 hostid 重做 initramfs，加一条带启动计数的
+   启动项。Incus 的数据库随根克隆、存储池 `rpool/incus` 两个系统共用，所以升级后实例、网络、存储原样还在。
+   新内核起不来时，三次失败后 systemd-boot 自动退回 7.2.7。
+5. 7.2.9 上 23 项全过（dae 同样是 netkit 性能模式）；ADSP/CDSP、风扇、GPU、Iris、2.5G、Wi-Fi、蓝牙、声卡正常，
+   内核 err 级日志 0 条；重启回归通过。
+6. `kernel-promote --tested`：`config/versions.conf` 改为 v7.2.9。
+
+升级后的启动菜单：`arm-packer-incus*` 两条（7.2.9 优先，7.2.7 留作退路）与最早的 `arm-packer-7.2.7`。
+`loader.conf` 用 `default arm-packer-incus*`：同 sort-key 时版本新的排前，带计数的新启动项失败三次就排到最后，
+以后再升内核照这个办法加一条即可。

@@ -27,7 +27,7 @@ make all             # 依次构建全部板子
 - 任意 `scripts/build.sh` 开关都能命令行透传，例：`make opiz3 ROOT_PASSWORD=secret SKIP_FETCH=1`。
 - **dry-run**：`make <板>-dry` 只解析配置、打印内核片段与板级钩子，不构建（秒级、无需联网/sudo）。
 
-成品在 `out/`，例如 `out/radxa-rock5c-archlinux-7.2.7.img.xz`。
+成品在 `out/`，例如 `out/radxa-rock5c-archlinux-7.2.9.img.xz`。
 
 > **加速迭代**：内核默认增量编译（同板重编几秒）；`CLEAN_KERNEL=1` 从头编；`SKIP_BUILD=1`
 > 跳过 U-Boot+内核只跑 rootfs/镜像；`SKIP_FETCH=1` 复用已克隆源码树。
@@ -124,7 +124,7 @@ XZ 在[上游支持测试清单](https://etcher-docs.balena.io/MANUAL-TESTING/#i
 压缩/解压和失败保护；`COMPRESS_IMAGE=0` 仍只保留原始 `.img`。
 
 ```sh
-IMG=out/radxa-rock5c-archlinux-7.2.7.img.xz   # 换成你的实际成品名（含内核版本号）
+IMG=out/radxa-rock5c-archlinux-7.2.9.img.xz   # 换成你的实际成品名（含内核版本号）
 # 务必先核对 /dev/sdX 是正确的卡 / eMMC
 xz -dc "$IMG" | sudo dd of=/dev/sdX bs=4M conv=fsync iflag=fullblock status=progress
 ```

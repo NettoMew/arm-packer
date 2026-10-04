@@ -1,8 +1,8 @@
 # Dragon Q8B kernel series
 
 `patches/` is a `git format-patch` series that applies cleanly, in order, on top
-of Linux **v7.2.7**. It is Armbian's tested `sc8280xp-edge` series (written for
-v7.2.3) carried forward to v7.2.7:
+of Linux **v7.2.9**. It is Armbian's tested `sc8280xp-edge` series (written for
+v7.2.3) carried forward to v7.2.7, then to v7.2.9:
 
 - **Source:** [armbian/build `1443dbae`](https://github.com/armbian/build/tree/1443dbaed3f65d6d3ce0fa343047fbf4a09dbfd4/patch/kernel/archive/sc8280xp-edge),
   the last commit touching the series (2026-09-12). Authors and commit messages
@@ -12,6 +12,11 @@ v7.2.3) carried forward to v7.2.7:
 - **Dropped, superseded in v7.2.7:** Armbian 0053 (glink endpoint teardown
   deadlock). Upstream fixed the same deadlock differently in "rpmsg: glink: fix
   deadlock in endpoint destroy during driver detach".
+- **Dropped, already in v7.2.8:** Armbian 0037 (dp: skip `push_idle` in
+  `atomic_disable()` when the display was never powered on). Stable carries the
+  same guard as "drm/msm/dp: skip PUSH_IDLE when the link was never enabled"
+  (`5e97d117b79c`). The numbers after it are kept, so 0037 stays empty and
+  0038 to 0080 keep the names the notes and commits refer to.
 - **Refreshed:**
   - Armbian 0021 (here 0021, stmmac `dma_device`): a stable TSO fix moved the
     context of the `stmmac_tso_xmit()` hunks. All four DMA calls there (`dma_map_single`,
@@ -33,7 +38,7 @@ v7.2.3) carried forward to v7.2.7:
     already started (at EL2, BIOS 260916 and later), found through its SMP2P
     state. It is Radxa's
     [`7bf1919dfc5e`](https://github.com/radxa/kernel/commit/7bf1919dfc5e873808f48231156aa12b64d926cc)
-    from their 7.0 tree, author kept. v7.2.7's `qcom_pas_attach()` already
+    from their 7.0 tree, author kept. v7.2's `qcom_pas_attach()` already
     checks the fatal, stop and ready states itself, so only the probe-time
     detection and the load and shutdown guards are carried. A DSP that is not
     running has published no SMP2P entry (`-ENODEV`); that now counts as "not
@@ -65,7 +70,7 @@ v7.2.3) carried forward to v7.2.7:
   - 0071 is Stephan Gerhold's "media: iris: Port firmware loading without
     TZ/PAS from venus", from radxa/kernel
     [`395349af3be0`](https://github.com/radxa/kernel/commit/395349af3be0),
-    carried to v7.2.7. At EL2 the PAS service cannot start Iris on this SoC
+    carried to v7.2. At EL2 the PAS service cannot start Iris on this SoC
     (its reset and IOMMU handling live in the EL1 hypervisor); with a
     `video-firmware` node the driver loads the firmware, maps it in the
     firmware's IOMMU stream and releases the core from reset itself. The
@@ -81,7 +86,7 @@ v7.2.3) carried forward to v7.2.7:
     [`aa86fe5bd57d`](https://github.com/radxa/kernel/commit/aa86fe5bd57df99ecf51c102fc265006a4fe4b63) and
     [`f87cd1e7a6cf`](https://github.com/radxa/kernel/commit/f87cd1e7a6cf9e164ef1a34c846312f9055e3f29).
     It talks to Radxa's service on the ADSP, which runs the fan, and exposes
-    fan control and the service's sensors through hwmon. v7.2.7 has only the
+    fan control and the service's sensors through hwmon. v7.2 has only the
     ACPI platform_profile class, so 0076 drops that interface and lets
     `pwm1_enable` pick the firmware curve instead (2 quiet, 3 performance);
     0077 is unchanged.
@@ -141,7 +146,6 @@ of the new tag, resolve, and export again with
 | 0034 | `0034-drm-msm-dpu-Clear-stale-DSC-resources-during-modeset.patch` |
 | 0035 | `0035-drm-msm-dp-Keep-branch-sink-count-in-sync.patch` |
 | 0036 | `0036-drm-msm-dp-Handle-IRQ-HPD-as-a-sink-request.patch` |
-| 0037 | `0037-drm-msm-dp-Skip-push_idle-in-atomic_disable-if-displ.patch` |
 | 0038 | `0038-arm64-dts-qcom-sc8280xp-Add-interconnects-to-UFS.patch` |
 | 0039 | `0039-drm-msm-dp-avoid-redundant-HPD-bridge-notifications.patch` |
 | 0040 | `0040-media-qcom-iris-align-HEVC-decoder-internal-buffer-s.patch` |

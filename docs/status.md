@@ -1,5 +1,13 @@
 # 进度与已知限制
 
+## Linux 7.2.9（2026-10-04）
+
+- 默认内核由 7.2.7 升到 7.2.9，按 kernel-check → kernel-build → 真机测试 → kernel-promote 完整走了一遍
+  （dragon-q8b / debian / incus）。Q8B 补丁 0037 删掉（7.2.8 已含），其余 79 个照旧；真机以 ZFS 启动环境方式升级，
+  23 项验证与外设、重启回归通过。明细见 [incus.md](incus.md) 的“内核更新到 7.2.9”一节。
+- 未覆盖：其余四块板子只经 `make test-kernel` 的 dry-run，没有用 7.2.9 构建或启动。
+- 已知：Q8B 两个 2.5G 口的 eth0/eth1 偶尔对调（见 [dragon-q8b.md](dragon-q8b.md) 的风险一节），不影响联网。
+
 ## Incus 主机 profile（2026-10-04）
 
 - 新增用途轴 `PROFILE`（`lib/profile/`，默认 `base` 不改变任何现有镜像）与内核能力合约 `kconfig/*.contract`；

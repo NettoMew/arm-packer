@@ -96,9 +96,9 @@ work/  out/                          源码树工作区 / 成品
   所以 vfat 分区在 fstab 里 fsck 序号为 2，引擎会装 dosfstools（`install_filesystem_tools`）。
 - **内核源码树每次构建都 `git clean`**（内核 O= 树外编译，安全）：板子补丁新增的文件不会残留到下一块板；
   U-Boot 树只 `checkout`，因为它树内编译、`SKIP_BUILD=1` 要复用产物。
-- **Dragon Q8B**：80 个补丁在 `boards/dragon-q8b/linux/patches`（来源与刷新记录见同目录 README）。镜像只跑 EL2：
-  DTB 是 `-el2.dtb`（`radxa,enable-kvm` 让固件进 EL2）；DSP 由 BIOS（≥260916，“Remoteproc firmware preload”
-  默认 Auto）在 EL2 下预启动、内核 attach，旧 BIOS 下没有 DSP。不要再往 ESP 装 qebspil：它会和 BIOS 的预启动
+- **Dragon Q8B**：79 个补丁在 `boards/dragon-q8b/linux/patches`（编号到 0080，0037 空号：7.2.8 已含；
+  来源与刷新记录见同目录 README）。镜像只跑 EL2：DTB 是 `-el2.dtb`（`radxa,enable-kvm` 让固件进 EL2）；
+  DSP 由 BIOS（≥260916，“Remoteproc firmware preload”默认 Auto）在 EL2 下预启动、内核 attach，旧 BIOS 下没有 DSP。不要再往 ESP 装 qebspil：它会和 BIOS 的预启动
   重复启动 DSP（崩溃或 DSP offline）。BIOS 第三方兼容选项与 Hypervisor Settings 须保持默认。风扇由 ADSP 上的
   Radxa 服务驱动（补丁 0076–0078 的 `radxa_svc_glink`，hwmon `pwm1`）；固件全速与高温时的自动曲线都输出 0 占空，
   这只风扇（Heatsink 6845B）会停转，所以 `files/etc/local.d/q8b-fan.start` 开机切手动、先 128 起转再定在 190。

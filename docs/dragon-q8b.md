@@ -24,7 +24,7 @@ make dragon-q8b-dry                # 只看配置
 | 异常级别 | 默认在 Qualcomm 的 hypervisor 下以 EL1 启动；DTB 带 `/chosen/radxa,enable-kvm` 时固件改为 EL2 启动 | 只跑 EL2 |
 | DSP | EL2 下内核没法通过 PAS 启动 DSP；BIOS 260916 起由固件在 EL2 下预启动（Hypervisor Settings → “Remoteproc firmware preload”，默认 Auto） | 要求 BIOS ≥ 260916，内核 attach |
 | 风扇 | 由 ADSP 上的 Radxa 服务驱动；固件全速与高温时的自动曲线都输出 0 占空，Heatsink 6845B 在这时停转 | 开机切手动并定在 pwm1 190 |
-| 主线内核 | 7.2.7 里没有 Q8B 的 DTS；TC956x 网卡驱动还在上游审阅 | 打 80 个补丁（见下） |
+| 主线内核 | 主线 7.2 里没有 Q8B 的 DTS；TC956x 网卡驱动还在上游审阅 | 打 79 个补丁（见下） |
 | 串口 | 40 针排针 Pin 6 GND、Pin 8 TXD、Pin 10 RXD；`ttyMSM0`，115200 | `board.conf` 里写死；DTS 补了 `stdout-path`，`earlycon` 可用 |
 | USB | 两个 Type-C 在 DTS 里都是 host | 不能当 One-KVM 的 USB 设备端 |
 
@@ -53,19 +53,19 @@ ESP 内容：
 ```
 EFI/BOOT/BOOTAA64.EFI                         systemd-boot
 EFI/systemd/systemd-bootaa64.efi
-loader/loader.conf                            default arm-packer-7.2.7.conf，timeout 3
-loader/entries/arm-packer-7.2.7.conf
-arm-packer/7.2.7/Image                        带 EFI stub
-arm-packer/7.2.7/initrd.img                   导入 ZFS 池的 initramfs（约 13M）
-arm-packer/7.2.7/dtbs/qcom/sc8280xp-radxa-dragon-q8b-el2.dtb
+loader/loader.conf                            default arm-packer-7.2.9.conf，timeout 3
+loader/entries/arm-packer-7.2.9.conf
+arm-packer/7.2.9/Image                        带 EFI stub
+arm-packer/7.2.9/initrd.img                   导入 ZFS 池的 initramfs（约 13M）
+arm-packer/7.2.9/dtbs/qcom/sc8280xp-radxa-dragon-q8b-el2.dtb
 ```
 
 ```
-title      Debian 7.2.7 (Radxa Dragon Q8B)
-version    7.2.7
-linux      /arm-packer/7.2.7/Image
-initrd     /arm-packer/7.2.7/initrd.img
-devicetree /arm-packer/7.2.7/dtbs/qcom/sc8280xp-radxa-dragon-q8b-el2.dtb
+title      Debian 7.2.9 (Radxa Dragon Q8B)
+version    7.2.9
+linux      /arm-packer/7.2.9/Image
+initrd     /arm-packer/7.2.9/initrd.img
+devicetree /arm-packer/7.2.9/dtbs/qcom/sc8280xp-radxa-dragon-q8b-el2.dtb
 options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 earlycon clk_ignore_unused efi=noruntime
 ```
 
@@ -122,8 +122,9 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 
 ### 板级（`boards/dragon-q8b/`）
 
-- **内核补丁**（`linux/patches/`，80 个）：Armbian `sc8280xp-edge` 系列（armbian/build `1443dbae`）
-  带到 7.2.7：删掉 7.2.7 已包含或已被上游替代的 5 个，刷新 2 个。另加 21 个，来源与理由逐个写在
+- **内核补丁**（`linux/patches/`，79 个，编号到 0080）：Armbian `sc8280xp-edge` 系列（armbian/build `1443dbae`）
+  带到 7.2.7 再到 7.2.9：删掉 7.2.7 已包含或已被上游替代的 5 个、7.2.8 已包含的 1 个（0037，编号空着），
+  刷新 2 个。另加 21 个，来源与理由逐个写在
   `linux/README.md`：
   - 0060 修 TC956x 网卡驱动在栈上未初始化的 IRQ 域参数（内核不自动清零栈时两个网口都起不来）；
   - 0061–0065 与 0071 是上面 EL2 用到的；
@@ -138,7 +139,7 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 - **风扇**：风扇接在 PMC8280C 的 LPG（经 MOS 管反相到 J6 的 PWM 脚），由 ADSP 上 Radxa 自己的服务按温度
   调速，Linux 只能通过 glink 通道 `RADXA_SVC_ADSP_APPS` 下指令。
   - 驱动是 Radxa 的 `radxa_svc_glink`（补丁 0076/0077，Xilin Wu），模块，由 udev 按通道名加载。hwmon
-    `radxa_svc_glink` 提供 `pwm1`（0–255）与 `pwm1_enable`：0 全速、1 手动、2 静音曲线、3 性能曲线。7.2.7
+    `radxa_svc_glink` 提供 `pwm1`（0–255）与 `pwm1_enable`：0 全速、1 手动、2 静音曲线、3 性能曲线。7.2
     只有 ACPI 的 platform_profile，所以 Radxa 原来放在 platform_profile 里的两条曲线改由 `pwm1_enable`
     的 2、3 选择。服务的其他传感器各注册成一个只读 hwmon，调试信息在 debugfs `radxa_svc_glink/`。
   - 补丁 0078：服务只能把回复写进 Linux 预先给出的接收缓冲（glink intent），而 rpmsg 要等 probe 返回才
@@ -297,6 +298,10 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
   固定转速不随温度变化，满载时的温度没有在 190 下测过。
 - 2.5G 网口：宿主上解绑或卸载 `tc956x_pci` 会让整机 panic；收发同时满载时发送只剩约 0.5 Gbit/s；
   补丁 0079 没有试过总线复位，只是保守地禁掉了它。
+- 2.5G 网口的名字不保证固定：两个功能并行 probe，谁先注册网络设备谁是 eth0。通常功能 0 是 eth0、功能 1 是
+  eth1，但 2026-10-04 记下名字的 12 次开机（7.2.7、7.2.9 各 6 次）里有 1 次（7.2.9）对调了。两个口都是 DHCP，地址跟着网线走、网络不受影响；
+  依赖名字的配置（直通、静态地址、自建 br0）要按 `/sys/class/net/<口>/device` 指向的功能号认，或用 systemd
+  `.link` 按设备路径固定名字。
 - Iris 的无 TZ 启动：固件 IOMMU 流 `0x2a02` 来自社区实测，不在官方 DT 里；绕过 TZ 意味着没有受保护内容
   播放；补丁上游尚未合入，以后可能要换成 Linux 管 IOMMU、TZ 做鉴权的新接口。
 - ZFS 是 CDDL 许可，和 GPL 的内核一起分发二进制在法律上有争议：镜像适合自用，公开分发前要想清楚。
