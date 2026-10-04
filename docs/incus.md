@@ -99,12 +99,15 @@ incus remote add tuna https://mirrors.tuna.tsinghua.edu.cn/lxc-images/ --protoco
 
 ## 让实例直接上局域网：自己建 br0
 
-镜像默认不改宿主网络。想让实例从路由器拿局域网地址，在宿主上把一个有线口桥起来（以 eth0 为例）：
+镜像默认不改宿主网络。想让实例从路由器拿局域网地址，在宿主上把一个有线口桥起来（以 eth0 为例，ROCK 5C 实测）：
 
 ```sh
-apt install bridge-utils
-sed -i 's/^BRIDGE_HOTPLUG=.*/BRIDGE_HOTPLUG=yes/' /etc/default/bridge-utils   # 网卡晚出现也会加入桥
+apt install bridge-utils          # /etc/default/bridge-utils 保持 BRIDGE_HOTPLUG=no
 ```
+
+**不要开 `BRIDGE_HOTPLUG=yes`**：它让 udev 在网卡出现时自己 `ifup br0`，而 udev 环境里的 dhcpcd 做不了 chroot
+（`ps_dropprivs: chroot: Operation not permitted`），拿不到地址；networking.service 随后又把 br0 当成已经起好而跳过，
+开机后 br0 只有 169.254 的地址。手动 `ifup` 时一切正常，只有重启才暴露。
 
 `/etc/network/interfaces` 里把 `allow-hotplug eth0` / `iface eth0 inet dhcp` 换成：
 
@@ -120,13 +123,20 @@ iface br0 inet dhcp
 ```
 
 `bridge_hw eth0` 让网桥沿用 eth0 的 MAC，路由器上的 DHCP 保留地址不变（否则 systemd 会给网桥另生成一个 MAC）。
-然后：
+网卡出现得晚的板子（如 Dragon Q8B 的 TC956x，PCIe 后面、模块驱动）再加一行 `bridge_waitport 30 eth0`，让 br0 等它。
+远程改网络时先留好退路：把切换写成脱离 SSH 的脚本，切完等确认、超时就恢复原配置；没有串口的板子再加一个开机检查，
+br0 一段时间拿不到 IPv4 就重新 `ifup`，还不行就恢复旧配置。IPv6 link-local（`fe80::…%接口`）在 br0 没拿到 IPv4 时也能连。
+
+然后让实例接到 br0。所有实例都上局域网：改 default profile，NAT 留作可选的 `nat` profile：
 
 ```sh
-incus profile create lan
-incus profile device add lan eth0 nic nictype=bridged parent=br0
-incus launch images:debian/13 c2 -p default -p lan
+incus profile device remove default eth0
+incus profile device add default eth0 nic nictype=bridged parent=br0 name=eth0
+incus profile create nat
+incus profile device add nat eth0 nic network=incusbr0 name=eth0     # incus launch … -p default -p nat
 ```
+
+只想让部分实例上局域网，就反过来：default 不动，另建一个 `nictype=bridged parent=br0` 的 `lan` profile。
 
 Wi-Fi 口不能当桥接口（802.11 客户端模式的限制）。Dragon Q8B 的 2.5G 口另见 [dragon-q8b.md](dragon-q8b.md)：
 容器 `phys` 直通安全且原生速度；KVM 直通要开机就交给 vfio。
