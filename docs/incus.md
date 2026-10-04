@@ -220,3 +220,11 @@ veth 兼容模式（合约加 `NETKIT`）。
 升级后的启动菜单：`arm-packer-incus*` 两条（7.2.9 优先，7.2.7 留作退路）与最早的 `arm-packer-7.2.7`。
 `loader.conf` 用 `default arm-packer-incus*`：同 sort-key 时版本新的排前，带计数的新启动项失败三次就排到最后，
 以后再升内核照这个办法加一条即可。
+
+### ROCK 5C（2026-10-04）
+
+`DISTRO=debian PROFILE=incus make rock5c`（Linux 7.2.9、RK3582 开核）：内核满足两份合约、vmlinux 带 BTF，OpenZFS 2.3.9
+随 RK3588 内核编出；通用 Debian 审计与 Incus 审计通过（ext4 根约 4G、ZFS 模块与 zfsutils、没有 zfs-initramfs/initramfs、
+首启分区配置）。QEMU virt 上用这块板自己的内核起镜像的根、盘比镜像大 20G：根分区停在 8G、`vda2` 建成 `incus` 分区
+（GPT 名 `incus`、ZFS 类型）并建池，`arm-packer-incus-init` 成功，Web UI、容器、快照与 ZFS 克隆正常，无失败单元、
+无 ordering cycle；**U-Boot 所在的扇区（34 到根分区）首启前后逐字节不变**。没有上 ROCK 5C 实机。
