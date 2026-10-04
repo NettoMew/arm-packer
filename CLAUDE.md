@@ -96,17 +96,19 @@ work/  out/                          源码树工作区 / 成品
   所以 vfat 分区在 fstab 里 fsck 序号为 2，引擎会装 dosfstools（`install_filesystem_tools`）。
 - **内核源码树每次构建都 `git clean`**（内核 O= 树外编译，安全）：板子补丁新增的文件不会残留到下一块板；
   U-Boot 树只 `checkout`，因为它树内编译、`SKIP_BUILD=1` 要复用产物。
-- **Dragon Q8B**：79 个补丁在 `boards/dragon-q8b/linux/patches`（编号到 0080，0037 空号：7.2.8 已含；
+- **Dragon Q8B**：80 个补丁在 `boards/dragon-q8b/linux/patches`（编号到 0081，0037 空号：7.2.8 已含；
   来源与刷新记录见同目录 README）。镜像只跑 EL2：DTB 是 `-el2.dtb`（`radxa,enable-kvm` 让固件进 EL2）；
-  DSP 由 BIOS（≥260916，“Remoteproc firmware preload”默认 Auto）在 EL2 下预启动、内核 attach，旧 BIOS 下没有 DSP。不要再往 ESP 装 qebspil：它会和 BIOS 的预启动
-  重复启动 DSP（崩溃或 DSP offline）。BIOS 第三方兼容选项与 Hypervisor Settings 须保持默认。风扇由 ADSP 上的
-  Radxa 服务驱动（补丁 0076–0078 的 `radxa_svc_glink`，hwmon `pwm1`）；固件全速与高温时的自动曲线都输出 0 占空，
+  DSP 由 BIOS（≥260916，“Remoteproc firmware preload”默认 Auto）在 EL2 下预启动、内核 attach，旧 BIOS 下没有 DSP。
+  不要再往 ESP 装 qebspil：它会和 BIOS 的预启动重复启动 DSP（崩溃或 DSP offline）。
+  BIOS 第三方兼容选项与 Hypervisor Settings 须保持默认。风扇由 ADSP 上的 Radxa 服务驱动（补丁 0076–0078 的 `radxa_svc_glink`，hwmon `pwm1`）；固件全速与高温时的自动曲线都输出 0 占空，
   这只风扇（Heatsink 6845B）会停转，所以 `files/etc/local.d/q8b-fan.start` 开机切手动、先 128 起转再定在 190。
   Iris 在 EL2 下由内核自己加载固件（补丁 0071 + overlay 的 `video-firmware` 子节点）。
   2.5G 网口（TC956x，`1179:0220`）：**不要在宿主上解绑/卸载 `tc956x_pci`，也不要对它 FLR**，两者都会让芯片
   停止响应，随后的配置空间访问变成 SError、整机 panic（补丁 0079 用 quirk 去掉了 FLR 与总线复位）；
   KVM 直通靠开机就把两个功能交给 vfio-pci，做法见 `docs/dragon-q8b.md`。接收 FIFO 只给单个队列（补丁 0080），
-  测吞吐用 iperf3，busybox nc 的 1K 读缓冲本身就把单流限在约 300 Mbit/s。
+  测吞吐用 iperf3，busybox nc 的 1K 读缓冲本身就把单流限在约 300 Mbit/s。功能 0 固定 eth0、功能 1 固定 eth1，
+  靠补丁 0081 让 `dwmac_tc956x` 软依赖 `gpio_tc956x`（PHY 复位脚在芯片 GPIO 块上；以前两驱动并行 probe，偶尔对调）。
+  不要用 udev/.link 把名字绑回 eth*：两个口互相要对方的名字时改名会失败。
   `DRM_MSM=m`、`EEPROM_AT24=y` 都是有意的：前者内建会在根分区挂载前请求 GPU 固件而报错，后者做成模块会让 PCIe（TC9563
   的 pwrctrl 要从这块 EEPROM 读 MAC）一直延迟重试到 udev 起来。组合 DTB（base + `.dtbo`）没有 `.dts`，
   引擎按 Makefile 的 `-dtbs :=` 规则认它（`kernel_dtb_has_source`）。

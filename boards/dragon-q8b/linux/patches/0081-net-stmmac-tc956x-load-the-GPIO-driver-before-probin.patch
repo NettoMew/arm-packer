@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam <i@noc.cat>
+Date: Sun, 4 Oct 2026 05:40:00 +0000
+Subject: [PATCH 81/81] net: stmmac: tc956x: load the GPIO driver before probing
+
+The PHY resets of both ports are GPIOs of the chip's own GPIO block,
+which gpio_tc956x serves from an auxiliary device the PCI driver creates
+together with the two Ethernet ones. udev loads both modules on those
+devices' events in whatever order they arrive, and the GPIO driver
+probes asynchronously, so a port could reach its PHY reset while the
+GPIO chip was still binding. That port deferred and was retried later,
+after the other one had registered: on a Radxa Dragon Q8B, one boot in
+a dozen named function 1 eth0 and function 0 eth1.
+
+Declare gpio_tc956x as a soft pre-dependency. modprobe then loads it
+first, and the module loader waits for its asynchronous probe before
+returning, so both ports find the GPIO chip ready and register in
+device order: function 0 is eth0, function 1 eth1, on every boot.
+
+---
+ drivers/net/ethernet/stmicro/stmmac/dwmac-tc956x.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/drivers/net/ethernet/stmicro/stmmac/dwmac-tc956x.c b/drivers/net/ethernet/stmicro/stmmac/dwmac-tc956x.c
+--- a/drivers/net/ethernet/stmicro/stmmac/dwmac-tc956x.c
++++ b/drivers/net/ethernet/stmicro/stmmac/dwmac-tc956x.c
+@@ -867,3 +867,11 @@ module_auxiliary_driver(tc956x_dwmac_driver);
+
+ MODULE_DESCRIPTION("Toshiba TC956x PCIe Ethernet Network Driver");
+ MODULE_LICENSE("GPL");
++
++/*
++ * The PHY resets are GPIOs of the chip's own GPIO block, served by
++ * gpio_tc956x. Loading it first keeps both ports from probing while it is
++ * still binding, which would defer one of them and hand out eth0 and eth1
++ * in whichever order the retries happen to finish.
++ */
++MODULE_SOFTDEP("pre: gpio_tc956x");

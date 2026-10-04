@@ -6,7 +6,7 @@
   （dragon-q8b / debian / incus）。Q8B 补丁 0037 删掉（7.2.8 已含），其余 79 个照旧；真机以 ZFS 启动环境方式升级，
   23 项验证与外设、重启回归通过。明细见 [incus.md](incus.md) 的“内核更新到 7.2.9”一节。
 - 未覆盖：其余四块板子只经 `make test-kernel` 的 dry-run，没有用 7.2.9 构建或启动。
-- 已知：Q8B 两个 2.5G 口的 eth0/eth1 偶尔对调（见 [dragon-q8b.md](dragon-q8b.md) 的风险一节），不影响联网。
+- 升级中发现 Q8B 两个 2.5G 口的 eth0/eth1 偶尔对调（MAC 驱动与 GPIO 驱动并行 probe），补丁 0081 修掉：功能 0 固定 eth0。
 
 ## Incus 主机 profile（2026-10-04）
 

@@ -24,7 +24,7 @@ make dragon-q8b-dry                # 只看配置
 | 异常级别 | 默认在 Qualcomm 的 hypervisor 下以 EL1 启动；DTB 带 `/chosen/radxa,enable-kvm` 时固件改为 EL2 启动 | 只跑 EL2 |
 | DSP | EL2 下内核没法通过 PAS 启动 DSP；BIOS 260916 起由固件在 EL2 下预启动（Hypervisor Settings → “Remoteproc firmware preload”，默认 Auto） | 要求 BIOS ≥ 260916，内核 attach |
 | 风扇 | 由 ADSP 上的 Radxa 服务驱动；固件全速与高温时的自动曲线都输出 0 占空，Heatsink 6845B 在这时停转 | 开机切手动并定在 pwm1 190 |
-| 主线内核 | 主线 7.2 里没有 Q8B 的 DTS；TC956x 网卡驱动还在上游审阅 | 打 79 个补丁（见下） |
+| 主线内核 | 主线 7.2 里没有 Q8B 的 DTS；TC956x 网卡驱动还在上游审阅 | 打 80 个补丁（见下） |
 | 串口 | 40 针排针 Pin 6 GND、Pin 8 TXD、Pin 10 RXD；`ttyMSM0`，115200 | `board.conf` 里写死；DTS 补了 `stdout-path`，`earlycon` 可用 |
 | USB | 两个 Type-C 在 DTS 里都是 host | 不能当 One-KVM 的 USB 设备端 |
 
@@ -122,9 +122,9 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 
 ### 板级（`boards/dragon-q8b/`）
 
-- **内核补丁**（`linux/patches/`，79 个，编号到 0080）：Armbian `sc8280xp-edge` 系列（armbian/build `1443dbae`）
+- **内核补丁**（`linux/patches/`，80 个，编号到 0081）：Armbian `sc8280xp-edge` 系列（armbian/build `1443dbae`）
   带到 7.2.7 再到 7.2.9：删掉 7.2.7 已包含或已被上游替代的 5 个、7.2.8 已包含的 1 个（0037，编号空着），
-  刷新 2 个。另加 21 个，来源与理由逐个写在
+  刷新 2 个。另加 22 个，来源与理由逐个写在
   `linux/README.md`：
   - 0060 修 TC956x 网卡驱动在栈上未初始化的 IRQ 域参数（内核不自动清零栈时两个网口都起不来）；
   - 0061–0065 与 0071 是上面 EL2 用到的；
@@ -135,7 +135,7 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
     “lpass-{rx,wsa}-macro: sort reg_defaults before regmap init”；
   - 0073–0075：AudioReach 音量控件名不再拼接 widget 名（否则超过 ALSA 的 44 字节被截断）、拓扑的延迟
     绑定不再按 warning 打印、Adreno 的旧式 “vdd”/“vddcx” 电源改为可选获取；
-  - 0076–0078 是风扇驱动，0079–0080 是 2.5G 网口的复位 quirk 与接收 FIFO，都见下。
+  - 0076–0078 是风扇驱动，0079–0081 是 2.5G 网口的复位 quirk、接收 FIFO 与固定命名，都见下。
 - **风扇**：风扇接在 PMC8280C 的 LPG（经 MOS 管反相到 J6 的 PWM 脚），由 ADSP 上 Radxa 自己的服务按温度
   调速，Linux 只能通过 glink 通道 `RADXA_SVC_ADSP_APPS` 下指令。
   - 驱动是 Radxa 的 `radxa_svc_glink`（补丁 0076/0077，Xilin Wu），模块，由 udev 按通道名加载。hwmon
@@ -159,6 +159,10 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
     不变。收发同时满载时芯片内部 DMA 带宽不够分，合计约 2.85 Gbit/s（收 2.36 / 发 0.49）。
   - 复位（补丁 0079）：功能声明支持 FLR，但 FLR 后永远不再就绪，内核随后写配置空间时变成 SError，
     整机 panic。quirk 去掉 FLR 和总线复位，这两个功能就没有任何复位方式（`reset_method` 属性消失）。
+  - 命名（补丁 0081）：功能 0 固定是 eth0、功能 1 固定是 eth1。两个口的 PHY 复位脚是芯片自带 GPIO 块的引脚，
+    由 `gpio_tc956x` 提供；原来 udev 按事件顺序加载两个模块、GPIO 驱动又异步 probe，网口偶尔在 GPIO 还没
+    绑定时走到 PHY 复位而推迟，另一个口抢先注册成 eth0（约十几次开机对调一次）。现在 `dwmac_tc956x` 以
+    `MODULE_SOFTDEP` 先加载 GPIO 驱动，模块加载器会等它异步 probe 完，两个口按功能号顺序注册。
   - **宿主上不要解绑 `tc956x_pci`**（`unbind`、`rmmod`）：芯片会停止响应，根口报 CmpltTO，AER 去读配置
     空间时同样 SError、panic。原因还没查清（怀疑功能 1 卸载时清掉总线主控，而 MSI 发生器还有待发的中断）。
     关机、重启走驱动的 shutdown 路径，不受影响。
@@ -298,10 +302,6 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
   固定转速不随温度变化，满载时的温度没有在 190 下测过。
 - 2.5G 网口：宿主上解绑或卸载 `tc956x_pci` 会让整机 panic；收发同时满载时发送只剩约 0.5 Gbit/s；
   补丁 0079 没有试过总线复位，只是保守地禁掉了它。
-- 2.5G 网口的名字不保证固定：两个功能并行 probe，谁先注册网络设备谁是 eth0。通常功能 0 是 eth0、功能 1 是
-  eth1，但 2026-10-04 记下名字的 12 次开机（7.2.7、7.2.9 各 6 次）里有 1 次（7.2.9）对调了。两个口都是 DHCP，地址跟着网线走、网络不受影响；
-  依赖名字的配置（直通、静态地址、自建 br0）要按 `/sys/class/net/<口>/device` 指向的功能号认，或用 systemd
-  `.link` 按设备路径固定名字。
 - Iris 的无 TZ 启动：固件 IOMMU 流 `0x2a02` 来自社区实测，不在官方 DT 里；绕过 TZ 意味着没有受保护内容
   播放；补丁上游尚未合入，以后可能要换成 Linux 管 IOMMU、TZ 做鉴权的新接口。
 - ZFS 是 CDDL 许可，和 GPL 的内核一起分发二进制在法律上有争议：镜像适合自用，公开分发前要想清楚。

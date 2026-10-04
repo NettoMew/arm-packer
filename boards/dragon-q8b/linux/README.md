@@ -103,6 +103,13 @@ v7.2.3) carried forward to v7.2.7, then to v7.2.9:
     The driver split 32KiB over four queues, but every received frame lands in
     queue 0, and 8KiB overflowed on line-rate bursts: a TCP stream into the port
     ran under 100Mbit/s. It now reaches 2.25Gbit/s.
+  - 0081 makes `dwmac_tc956x` load `gpio_tc956x` first (`MODULE_SOFTDEP`). Both
+    PHY resets are GPIOs of the chip's own GPIO block; udev loaded the two
+    modules in event order and the GPIO driver probes asynchronously, so a port
+    could reach its PHY reset before the GPIO chip had bound, defer, and register
+    after the other port. One boot in a dozen named function 1 eth0. modprobe now
+    loads the GPIO driver first and the module loader waits for its asynchronous
+    probe, so the ports register in function order: function 0 is eth0.
 
 To refresh the series for another kernel, apply it with `git am` on a worktree
 of the new tag, resolve, and export again with
