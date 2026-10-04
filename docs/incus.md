@@ -37,6 +37,17 @@ Incus 的存储池永远是 ZFS，不提供 `dir` 之类的退路——快照、
 
 - 盘小于 16G（8G 根 + 至少 8G 池）时不建分区，`arm-packer-incus-init` 明确失败并说明原因，不会降级。
   `INCUS_ROOT_SIZE` / `INCUS_POOL_MIN` 可在构建时改。
+- 池放在另一块盘（SD 做系统、NVMe 做存储，或系统盘不够 16G）：系统盘的根照常扩满；在那块盘上建名为 `incus` 的池，
+  再重跑初始化，它见池已存在就直接接着做完（ROCK 5C 实测，见验证记录）：
+
+  ```sh
+  d=/dev/disk/by-id/nvme-...                   # 整块盘，里面的东西会被清掉
+  wipefs -a ${d}-part* 2>/dev/null; wipefs -a $d
+  . /etc/arm-packer/incus.conf; zgenhostid -f
+  zpool create -f $(for p in $POOL_PROPERTIES; do printf -- '-o %s ' $p; done) \
+    $(for p in $DATASET_PROPERTIES; do printf -- '-O %s ' $p; done) -O mountpoint=none incus $d
+  systemctl reset-failed arm-packer-incus-init; systemctl start arm-packer-incus-init
+  ```
 - 新分区紧接根分区之后、按 1 MiB 对齐，**绝不会**落进根分区前面的空隙（U-Boot 板的引导程序在那里）；
   `make test-grow IMAGE=...` 在 loop 盘上实测 MBR / GPT / 小盘三种情况并逐字节核对引导区。
 - 镜像缓存与导出的备份也在池里（`storage.images_volume=default/images`、`storage.backups_volume=default/backups`），
@@ -227,4 +238,9 @@ veth 兼容模式（合约加 `NETKIT`）。
 随 RK3588 内核编出；通用 Debian 审计与 Incus 审计通过（ext4 根约 4G、ZFS 模块与 zfsutils、没有 zfs-initramfs/initramfs、
 首启分区配置）。QEMU virt 上用这块板自己的内核起镜像的根、盘比镜像大 20G：根分区停在 8G、`vda2` 建成 `incus` 分区
 （GPT 名 `incus`、ZFS 类型）并建池，`arm-packer-incus-init` 成功，Web UI、容器、快照与 ZFS 克隆正常，无失败单元、
-无 ordering cycle；**U-Boot 所在的扇区（34 到根分区）首启前后逐字节不变**。没有上 ROCK 5C 实机。
+无 ordering cycle；**U-Boot 所在的扇区（34 到根分区）首启前后逐字节不变**。
+
+实机（ROCK 5C，RK3582 开 7 核、4G 内存，14.6G SD 做系统盘，NVMe E2M2 64GB 做存储）：SD 不够 16G，首启按设计把根扩满
+整张卡、不建分区，`arm-packer-incus-init` 拒绝初始化并写明原因；在 NVMe 上按上面的做法建池 `incus` 后重跑初始化即成功。
+重启后池自动导入、`incusbr0` 与 :8443 正常、ARC 上限 971 MiB（内存 1/4），容器（Debian 13）101 s 起好（含下载镜像），
+非特权 uid 映射 0→1000000，数据落在 NVMe 的池里；无失败单元。

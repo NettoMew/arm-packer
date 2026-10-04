@@ -5,8 +5,8 @@
 - 默认内核由 7.2.7 升到 7.2.9，按 kernel-check → kernel-build → 真机测试 → kernel-promote 完整走了一遍
   （dragon-q8b / debian / incus）。Q8B 补丁 0037 删掉（7.2.8 已含），其余 79 个照旧；真机以 ZFS 启动环境方式升级，
   23 项验证与外设、重启回归通过。明细见 [incus.md](incus.md) 的“内核更新到 7.2.9”一节。
-- ROCK 5C 的 Debian + Incus 镜像用 7.2.9 构建，审计与 QEMU 首启通过（ext4 根 8G + incus ZFS 分区、容器、U-Boot 扇区不变），
-  未上实机；e20c、m28k、opiz3 只经 `make test-kernel` 的 dry-run。
+- ROCK 5C 的 Debian + Incus 镜像用 7.2.9 构建，审计与 QEMU 首启通过（ext4 根 8G + incus ZFS 分区、容器、U-Boot 扇区不变）；
+  实机上 SD（14.6G）做系统盘、NVMe 建池，Incus 与容器正常。e20c、m28k、opiz3 只经 `make test-kernel` 的 dry-run。
 - 升级中发现 Q8B 两个 2.5G 口的 eth0/eth1 偶尔对调（MAC 驱动与 GPIO 驱动并行 probe），补丁 0081 修掉：功能 0 固定 eth0。
 
 ## Incus 主机 profile（2026-10-04）

@@ -7,7 +7,8 @@
 #
 # Defines the fs_* contract; lib/fs/zfs.sh is the other implementation.
 
-ROOTFS_LABEL="${ROOTFS_LABEL:-alpine_root}"
+# Boot and fstab find the root by PARTUUID; the label only names it for people.
+ROOTFS_LABEL="${ROOTFS_LABEL:-root}"
 # Keep the root filesystem readable by U-Boot's conservative ext4 implementation.
 # Recent e2fsprogs defaults can enable metadata_csum_seed/orphan_file/64bit; these
 # are useful on large server filesystems but unnecessary for small SBC boot images
