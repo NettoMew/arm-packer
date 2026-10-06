@@ -224,6 +224,48 @@ kernel_release() {
   printf '%s\n' "${krel}"
 }
 
+# KERNEL_PACKAGE=1: the kernel the image boots, as a tarball beside the image, for
+# updating a board that already runs this image without reflashing it. The
+# modules are taken from the populated rootfs, so the package holds what the
+# image holds, the board's out-of-tree drivers and OpenZFS among them. It holds
+# no initramfs: a root that needs one gets it built on the board, where the
+# hostid and the running system are known. MANIFEST says which kind of root it is.
+package_kernel() {
+  [[ "${KERNEL_PACKAGE}" == 1 ]] || return 0
+  section "Packaging the kernel beside the image"
+  local krel name stage top out
+  krel="$(kernel_release)"
+  name="$(basename "${IMAGE_PATH%.img}")"
+  stage="${BUILD_DIR}/kernel-package"
+  top="${stage}/${name}"
+  out="${IMAGE_PATH%.img}.kernel.tar.xz"
+  [[ -d "${MOUNTPOINT_ROOT}/lib/modules/${krel}" ]] || fatal "No modules for ${krel} in the rootfs to package."
+
+  rm -rf "${stage}"
+  mkdir -p "${top}/dtbs/$(dirname "${KERNEL_DTB}")" "${top}/modules"
+  cp "${KERNEL_BUILD_DIR}/arch/arm64/boot/Image" "${top}/Image"
+  cp "${KERNEL_BUILD_DIR}/arch/arm64/boot/dts/${KERNEL_DTB}" "${top}/dtbs/${KERNEL_DTB}"
+  cp "${KERNEL_BUILD_DIR}/.config" "${top}/config-${krel}"
+  cp "${KERNEL_BUILD_DIR}/System.map" "${top}/System.map-${krel}"
+  cp -R "${MOUNTPOINT_ROOT}/lib/modules/${krel}" "${top}/modules/"
+  rm -f "${top}/modules/${krel}/build" "${top}/modules/${krel}/source"   # links into this build host
+  {
+    printf '%s\n' "image=$(basename "${IMAGE_PATH}").xz" "board=${BOARD}" "distro=${DISTRO}" \
+      "profile=${PROFILE}" "rootfs=${ROOTFS_TYPE}" "kernelrelease=${krel}" \
+      "kernelversion=${RESOLVED_KERNEL_VERSION}" "kernel_repo=${KERNEL_REPO}" "kernel_ref=${KERNEL_REF}" \
+      "kernel_commit=$(git -C "${KERNEL_SRC_DIR}" rev-parse HEAD)" "dtb=${KERNEL_DTB}" \
+      "initramfs=$([[ -n "${ROOTFS_INITRD}" ]] && echo required || echo none)"
+  } > "${top}/MANIFEST"
+  (cd "${top}" && sha256sum Image "dtbs/${KERNEL_DTB}" "config-${krel}" "System.map-${krel}" > SHA256SUMS)
+
+  log "+ tar -C ${stage} ${name} | xz -T0 -6 > ${out}"
+  tar -C "${stage}" --sort=name --owner=0 --group=0 --numeric-owner -cf - "${name}" \
+    | xz --format=xz --check=crc64 -T0 -6 > "${out}.tmp"
+  mv -f "${out}.tmp" "${out}"
+  rm -rf "${stage}"
+  log "Kernel package: ${out} ($(du -h "${out}" | cut -f1); modules ${krel})"
+}
+
 install_kernel_modules() {
   section "Installing kernel modules into rootfs"
   # INSTALL_MOD_STRIP=1: the distro-grade config builds thousands of modules and

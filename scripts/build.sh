@@ -178,6 +178,7 @@ if [[ "${DRY_RUN}" == "1" ]]; then
   log "kernel dtb: ${KERNEL_DTB}"
   log "offline SWUpdate: ${ENABLE_SWUPDATE} (packages + public key required when enabled)"
   log "image: ${OUTPUT_DIR}/${IMAGE_NAME:-${IMAGE_NAME_PREFIX}-<kernelversion>.img} (size ${IMAGE_SIZE})"
+  [[ "${KERNEL_PACKAGE}" != 1 ]] || log "kernel package: beside the image, <image>.kernel.tar.xz"
   log "console: ${SERIAL_CONSOLE},${SERIAL_BAUD}n8"
   load_partition_layout
   log "partition table: $(vendor_partition_table)"

@@ -118,4 +118,4 @@ test-image:
 	bash scripts/test-image-compression.sh
 
 clean:
-	rm -f out/*.img out/*.img.xz out/*.img.xz.sha256 out/*.img.zst out/*.img.zst.sha256
+	rm -f out/*.img out/*.img.xz out/*.img.xz.sha256 out/*.img.zst out/*.img.zst.sha256 out/*.kernel.tar.xz out/*.kernel.tar.xz.sha256

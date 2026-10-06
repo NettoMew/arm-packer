@@ -1,0 +1,214 @@
+# Follows the stable point releases of the kernel series config/versions.conf
+# pins. Once a day it asks the kernel repository for the newest vX.Y.Z of that
+# series. When that is newer than the default, every board runs kernel-check
+# against it (patches, Kconfig, device tree) while the default targets of
+# build.yml build in full with it, images and kernel update packages both. Once
+# all of that passes, the default moves to the new release in a commit on the
+# branch the workflow runs on, and the images and packages go out as a
+# prerelease tagged linux-X.Y.Z on that commit. Nothing here has run on a board:
+# the prerelease is what to test on hardware next.
+#
+# A newer series is only reported in the run's summary: the board patches
+# usually need a hand there, and OpenZFS must support it. Run it from the
+# Actions tab with a tag to try one anyway, or to bump to a given point release.
+name: kernel-bump
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 内核标签（留空 = 当前系列最新的点版本；比默认值新才会动手）
+        type: string
+        default: ''
+      targets:
+        description: 完整构建的目标，写法同 build.yml（留空 = build.yml 的默认目标）
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-bump-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  detect:
+    name: detect
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      ref: ${{ steps.detect.outputs.ref }}
+      current: ${{ steps.detect.outputs.current }}
+      boards: ${{ steps.detect.outputs.boards }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Find the newest release
+        id: detect
+        env:
+          AP_REF: ${{ inputs.ref }}
+        run: |
+          set -Eeuo pipefail
+          source config/versions.conf
+          current="${DEFAULT_KERNEL_REF}"
+          [[ "${current}" =~ ^v([0-9]+)\.([0-9]+)(\.[0-9]+)?$ ]] \
+            || { echo "::error::无法解析默认内核 ${current}"; exit 1; }
+          series="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+          tags="$(git ls-remote --tags --refs "${DEFAULT_KERNEL_REPO}" 'v*' \
+            | sed -n 's|^[0-9a-f]*[[:space:]]*refs/tags/||p' \
+            | grep -E '^v[0-9]+\.[0-9]+(\.[0-9]+)?$' | sort -V)"
+          [[ -n "${tags}" ]] || { echo "::error::${DEFAULT_KERNEL_REPO} 没有返回任何发布标签"; exit 1; }
+          latest="$(grep -E "^${series//./[.]}([.][0-9]+)?$" <<< "${tags}" | tail -n 1)"
+          newest="$(tail -n 1 <<< "${tags}")"
+          ref="${AP_REF:-${latest}}"
+          grep -Fqx -- "${ref}" <<< "${tags}" || { echo "::error::${DEFAULT_KERNEL_REPO} 没有发布标签 ${ref}"; exit 1; }
+          if [[ "${ref}" == "${current}" || "$(printf '%s\n' "${current}" "${ref}" | sort -V | tail -n 1)" != "${ref}" ]]; then
+            verdict="默认值 ${current} 已经不比 ${ref} 旧，什么都不做。"
+            ref=""
+          else
+            verdict="${current} → ${ref}：检查全部板子并完整构建默认目标，通过后更新默认值。"
+          fi
+          {
+            echo "### 内核"
+            echo
+            echo "- 默认值：\`${current}\`（${series} 系列最新：\`${latest}\`）"
+            echo "- ${verdict}"
+            if [[ "${newest%.*}" != "${series}" && "${newest}" != "${series}" ]]; then
+              echo "- 已有更新的系列 \`${newest}\`：跨系列需要人工处理（板级补丁、OpenZFS 的 Linux-Maximum），可手动触发并填 ref 试编。"
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+          boards="$(printf '%s\n' boards/*/board.conf | cut -d/ -f2 | jq -Rcn '[inputs]')"
+          {
+            echo "ref=${ref}"
+            echo "current=${current}"
+            echo "boards=${boards}"
+          } >> "${GITHUB_OUTPUT}"
+
+  # Patches, Kconfig and the device tree of every board, whether or not it is
+  # among the targets built in full. Debian is the distro every board can use
+  # (a ZFS root refuses the others).
+  check:
+    name: check ${{ matrix.board }}
+    needs: detect
+    if: ${{ needs.detect.outputs.ref != '' }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        board: ${{ fromJSON(needs.detect.outputs.boards) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # kernel-check never installs anything itself.
+      - name: Install the kernel toolchain
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends bc bison flex dwarves libelf-dev libssl-dev pkg-config
+
+      - name: kernel-check
+        env:
+          BOARD: ${{ matrix.board }}
+          DISTRO: debian
+          KERNEL_REF: ${{ needs.detect.outputs.ref }}
+        run: bash scripts/kernel-update.sh check
+
+      - name: Upload the validation record
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: check-${{ matrix.board }}
+          path: |
+            work/kernel-validation/*/validation.txt
+            work/kernel-validation/*/validation.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+  build:
+    needs: detect
+    if: ${{ needs.detect.outputs.ref != '' }}
+    uses: ./.github/workflows/build.yml
+    with:
+      targets: ${{ inputs.targets }}
+      kernel_ref: ${{ needs.detect.outputs.ref }}
+    permissions:
+      contents: write
+      actions: write
+
+  bump:
+    name: bump
+    needs: [detect, check, build]
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Commit the new default
+        id: commit
+        env:
+          AP_REF: ${{ needs.detect.outputs.ref }}
+          AP_CURRENT: ${{ needs.detect.outputs.current }}
+        run: |
+          set -Eeuo pipefail
+          source config/versions.conf
+          [[ "${DEFAULT_KERNEL_REF}" == "${AP_CURRENT}" ]] \
+            || { echo "::error::${GITHUB_REF_NAME} 上的默认内核已经变成 ${DEFAULT_KERNEL_REF}，不再改动"; exit 1; }
+          sed -i "s/^DEFAULT_KERNEL_REF=.*/DEFAULT_KERNEL_REF=${AP_REF}/" config/versions.conf
+          [[ "$(git diff --numstat -- config/versions.conf)" == $'1\t1\tconfig/versions.conf' ]] \
+            || { echo "::error::versions.conf 的改动不止默认内核一行"; git diff; exit 1; }
+          make test-kernel
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          git add config/versions.conf
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -q -F - <<EOF
+          build: Linux ${AP_REF#v}
+
+          The default kernel moves from ${AP_CURRENT#v} to ${AP_REF#v}, the newest point
+          release of its series. Every board passed kernel-check against it
+          (patches, Kconfig and device tree), and the default targets built in
+          full; their images and kernel packages are in the prerelease
+          linux-${AP_REF#v}. None of it has run on a board yet.
+
+          Checked and built from ${GITHUB_SHA:0:12}: ${run_url}
+          EOF
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo "sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+
+  publish:
+    name: publish
+    needs: [detect, bump]
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: '*.xz'
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: record-*
+          merge-multiple: true
+
+      - name: Publish the prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          AP_REF: ${{ needs.detect.outputs.ref }}
+          AP_SHA: ${{ needs.bump.outputs.sha }}
+          AP_NOTES: Linux ${{ needs.detect.outputs.ref }} 的镜像和内核更新包。CI 里检查、编译都已通过，**还没上过真机**。
+        run: bash .github/scripts/release.sh "linux-${AP_REF#v}" "${AP_SHA}" dist --prerelease

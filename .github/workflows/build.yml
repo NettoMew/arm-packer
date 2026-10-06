@@ -7,6 +7,8 @@
 #   gh workflow run build.yml -f targets='rock5c:debian:incus e20c'
 # Each target is a board target of the Makefile, optionally followed by
 # :distro and :profile; "all" stands for every board the Makefile's "all" builds.
+# Every image comes with its kernel update package (KERNEL_PACKAGE=1).
+# kernel-bump.yml calls this workflow to build a new kernel release.
 #
 # Everything the workflow itself puts in the environment is prefixed AP_: the
 # build passes its environment on to the kernel's and U-Boot's make, where an
@@ -16,22 +18,28 @@ name: build
 on:
   workflow_dispatch:
     inputs:
-      targets:
-        description: 目标，空格分隔：make 目标[:发行版[:用途]]，如 rock5c:debian:incus m28k-noscreen；all[:发行版] = Makefile 里的全部板子
+      targets: &targets
+        description: 目标，空格分隔：make 目标[:发行版[:用途]]，如 rock5c:debian:incus m28k-noscreen；all[:发行版] = Makefile 里的全部板子；留空 = dragon-q8b:debian:incus rock5c:debian:incus
         type: string
-        default: dragon-q8b:debian:incus rock5c:debian:incus
-      kernel_ref:
+        default: ''
+      kernel_ref: &kernel_ref
         description: 内核标签（留空 = config/versions.conf 的默认值）
         type: string
         default: ''
-      env:
+      env: &env
         description: 额外开关，空格分隔的 KEY=VALUE，作用于每个目标（如 ROCK5C_NVME_BOOT=1 IMAGE_SIZE=8G）
         type: string
         default: ''
-      release:
+      release: &release
         description: 发布到这个 Release 标签（留空 = 只上传 artifact）
         type: string
         default: ''
+  workflow_call:
+    inputs:
+      targets: *targets
+      kernel_ref: *kernel_ref
+      env: *env
+      release: *release
 
 permissions:
   contents: read
@@ -47,9 +55,10 @@ defaults:
     shell: bash
 
 env:
-  AP_TARGETS: ${{ inputs.targets }}
+  AP_TARGETS: ${{ inputs.targets || 'dragon-q8b:debian:incus rock5c:debian:incus' }}
   AP_EXTRA_ENV: ${{ inputs.env }}
   KERNEL_REF: ${{ inputs.kernel_ref }}
+  KERNEL_PACKAGE: 1
   # source.denx.de turns the runners away (502); the GitHub mirror carries the
   # same commits.
   UBOOT_REPO: https://github.com/u-boot/u-boot.git
@@ -190,10 +199,12 @@ jobs:
           ccache --zero-stats > /dev/null
           env "${extra[@]}" make "${AP_MAKE_TARGET}" 2>&1 | tee build.log
 
-      # A build that went through keeps only what it used, so the cache saved
-      # for next time holds this kernel and no older one; a failed build keeps
-      # everything it restored. The cache is saved again when the build compiled
-      # a noticeable amount, or when this target had none of its own yet.
+      # A build of the default kernel that went through keeps only what it used,
+      # so the cache saved for next time holds this kernel and no older one. A
+      # failed build keeps everything it restored, and so does a build of another
+      # kernel (kernel_ref, the kernel bump): the default still needs its objects.
+      # The cache is saved again when the build compiled a noticeable amount, or
+      # when this target had none of its own yet.
       - name: Report ccache
         id: ccache-report
         if: ${{ !cancelled() }}
@@ -205,7 +216,7 @@ jobs:
           counter() { ccache --print-stats | awk -v k="$1" '$1 == k { n = $2 } END { print n + 0 }'; }
           hits=$(( $(counter direct_cache_hit) + $(counter preprocessed_cache_hit) ))
           misses="$(counter cache_miss)"
-          if [[ "${AP_BUILD_OUTCOME}" == success ]]; then
+          if [[ "${AP_BUILD_OUTCOME}" == success && -z "${KERNEL_REF}" ]]; then
             ccache --evict-older-than "$(( $(date +%s) - AP_BUILD_START + 60 ))s"
           fi
           size="$(du -sh "${CCACHE_DIR}" | cut -f1)"
@@ -252,23 +263,28 @@ jobs:
         run: |
           shopt -s nullglob
           images=(out/*.img.xz)
-          (( ${#images[@]} == 1 )) || { echo "::error::out/ 里应有一个镜像，实有 ${#images[@]} 个"; exit 1; }
-          image="${images[0]}"
-          file="${image##*/}"
-          (cd out && sha256sum "${file}" > "${file}.sha256")
+          packages=(out/*.kernel.tar.xz)
+          (( ${#images[@]} == 1 && ${#packages[@]} == 1 )) \
+            || { echo "::error::out/ 里应有一个镜像和一个内核包，实有 ${#images[@]} 和 ${#packages[@]}"; exit 1; }
           mkdir -p record
-          cp "${image}.sha256" record/
           cp work/build/linux-build/.config "record/${AP_NAME}.kernel.config"
-          echo "image=${image}" >> "${GITHUB_OUTPUT}"
           {
             echo "### ${AP_NAME}"
             echo
-            echo "| 项目 | 值 |"
-            echo "| --- | --- |"
-            echo "| 镜像 | \`${file}\`（$(du -h "${image}" | cut -f1)） |"
-            echo "| SHA-256 | \`$(cut -d' ' -f1 "${image}.sha256")\` |"
-            echo "| 用时 | $(( ($(date +%s) - AP_BUILD_START) / 60 )) 分钟 |"
-            echo "| ccache | 命中 ${AP_HITS}，未命中 ${AP_MISSES}，保留 ${AP_CACHE_SIZE} |"
+            echo "| 文件 | 大小 | SHA-256 |"
+            echo "| --- | --- | --- |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+          for path in "${images[0]}" "${packages[0]}"; do
+            file="${path##*/}"
+            (cd out && sha256sum "${file}" > "${file}.sha256")
+            cp "${path}.sha256" record/
+            echo "| \`${file}\` | $(du -h "${path}" | cut -f1) | \`$(cut -d' ' -f1 "${path}.sha256")\` |" >> "${GITHUB_STEP_SUMMARY}"
+          done
+          echo "image=${images[0]}" >> "${GITHUB_OUTPUT}"
+          echo "package=${packages[0]}" >> "${GITHUB_OUTPUT}"
+          {
+            echo
+            echo "用时 $(( ($(date +%s) - AP_BUILD_START) / 60 )) 分钟，ccache 命中 ${AP_HITS}、未命中 ${AP_MISSES}，保留 ${AP_CACHE_SIZE}。"
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload image
@@ -276,6 +292,14 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           path: ${{ steps.collect.outputs.image }}
+          archive: false
+          retention-days: 30
+
+      - name: Upload kernel package
+        if: ${{ steps.collect.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.collect.outputs.package }}
           archive: false
           retention-days: 30
 
@@ -302,10 +326,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           path: dist
-          pattern: '*.img.xz'
+          pattern: '*.xz'
           merge-multiple: true
       - uses: actions/download-artifact@v8
         with:
@@ -318,23 +343,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           AP_TAG: ${{ inputs.release }}
-        run: |
-          set -Eeuo pipefail
-          cd dist
-          shopt -s nullglob
-          images=(*.img.xz)
-          (( ${#images[@]} )) || { echo "::error::没有可发布的镜像"; exit 1; }
-          {
-            echo "构建自 \`${GITHUB_SHA:0:12}\`，[运行记录](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})。"
-            echo
-            echo "| 镜像 | SHA-256 |"
-            echo "| --- | --- |"
-            for f in "${images[@]}"; do echo "| \`${f}\` | \`$(cut -d' ' -f1 "${f}.sha256")\` |"; done
-          } > notes.md
-          assets=("${images[@]}")
-          for f in "${images[@]}"; do assets+=("${f}.sha256"); done
-          if gh release view "${AP_TAG}" > /dev/null 2>&1; then
-            gh release upload "${AP_TAG}" "${assets[@]}" --clobber
-          else
-            gh release create "${AP_TAG}" --target "${GITHUB_SHA}" --title "${AP_TAG}" --notes-file notes.md "${assets[@]}"
-          fi
+        run: bash .github/scripts/release.sh "${AP_TAG}" "${GITHUB_SHA}" dist

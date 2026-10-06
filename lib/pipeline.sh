@@ -64,6 +64,7 @@ run_pipeline() {
   format_partitions
   mount_root_partition
   populate_rootfs
+  package_kernel                 # KERNEL_PACKAGE=1: the image's kernel as an update package
   finalize_image
   compress_image
 

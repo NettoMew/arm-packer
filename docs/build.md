@@ -63,6 +63,9 @@ make rock5c KERNEL_REPO=https://git.kernel.org/pub/scm/linux/kernel/git/torvalds
 - `build`（[`build.yml`](../.github/workflows/build.yml)）：手动触发，在 GitHub 原生 arm64 runner
   （`ubuntu-24.04-arm`，4 核、15 GB 内存）上构建镜像。内核原生编译，不用交叉工具链，也不用 qemu；
   ZFS 池由 runner 内核自带的 zfs 模块创建。每个目标占一台 runner，并行构建。
+- `kernel-bump`（[`kernel-bump.yml`](../.github/workflows/kernel-bump.yml)）：每天查一次当前系列有没有新的
+  点版本，有就检查全部板子、用 `build` 完整构建默认目标，通过后直接更新默认内核并发预发布，
+  见[内核更新流程](kernel-updates.md#6-自动跟进点版本github-actions)。
 
 ```sh
 gh workflow run build.yml                          # 默认：dragon-q8b:debian:incus rock5c:debian:incus
@@ -77,9 +80,10 @@ gh workflow run build.yml -f release=v2026.10.06   # 另外发布到这个标签
   `rock5c-stock`），省略的部分取引擎默认值。plan 任务先对每个目标跑一遍 dry-run：目标写错、组合不合法
   （比如 alpine 配 ZFS 根），几秒内就失败，不占构建 runner。
 - **`env`** 是空格分隔的 `KEY=VALUE`，作用于每个目标，值里不能有空格和引号。
-- **成品**：每个镜像单独上传成不打包的 artifact，下载即 `.img.xz`。另有 `record-<目标>`，内含构建日志、
-  内核 `.config`、sha256 和 ccache 统计；构建失败时也会上传，用来排查。两者都保留 30 天。
-  填了 `release` 时，全部目标成功后再发到该标签的 Release；标签已存在就覆盖同名文件。
+- **成品**：每个镜像和它的[内核更新包](kernel-updates.md#内核更新包)（`.kernel.tar.xz`）各自上传成
+  不打包的 artifact，下载即用。另有 `record-<目标>`，内含构建日志、内核 `.config`、sha256 和 ccache 统计；
+  构建失败时也会上传，用来排查。都保留 30 天。填了 `release` 时，全部目标成功后再发到该标签的 Release；
+  标签已存在就覆盖同名文件。
 - **U-Boot** 改从 GitHub 镜像拉取：`source.denx.de` 对 runner 返回 502。
 
 实测（Linux 7.2.9，2026-10）：冷编每个目标约 80 分钟，其中内核占 73 分钟；缓存热了以后整个任务
@@ -149,6 +153,7 @@ BTF 生成也会随 `JOBS` 并行，内存不足时不能只看 C 编译是否�
 | `ZFS_DATASET_PROPERTIES` | `compression=zstd atime=off xattr=sa acltype=posixacl dnodesize=auto` | 仅 zfs：`zpool create -O` 的数据集属性，所有数据集继承（池根数据集固定 `mountpoint=none canmount=off`，新数据集要自己指定挂载点） |
 | `ROOTFS_EXT4_FEATURES` | `^metadata_csum,^metadata_csum_seed,^orphan_file,^64bit` | 仅 ext4：传给 `mkfs.ext4 -O` 的根分区特性；默认保守 ext4，避免 U-Boot 能读 `extlinux.conf` 却加载 `/boot/Image` 失败 |
 | `COMPRESS_IMAGE` | `1` | `1`=构建后 `xz -T0 -6` 打包，完整性检查通过才发布 `.img.xz` 并删除原始 `.img` |
+| `KERNEL_PACKAGE` | `0` | `1`=镜像旁再出 `<镜像名>.kernel.tar.xz`：Image、DTB、模块（原样取自 rootfs），用来给已在跑的板子换内核，见[内核更新包](kernel-updates.md#内核更新包) |
 | `INSTALL_DEPS` | `1` | `0`=只检查依赖、缺失就报错，不自动装 |
 | `ROOT_PASSWORD` | `120102` | root 密码（SHA-512 写入 `/etc/shadow`）；置空则免密码（仅串口） |
 | `ROOT_AUTHORIZED_KEY` | 内置 ed25519 公钥 | 写入 `/root/.ssh/authorized_keys`，并开 `PermitRootLogin yes` |

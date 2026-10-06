@@ -152,6 +152,12 @@ SKIP_BUILD="${SKIP_BUILD:-0}"
 # finished image to produce <image>.img.xz and removes the raw .img.
 COMPRESS_IMAGE="${COMPRESS_IMAGE:-1}"
 
+# Set KERNEL_PACKAGE=1 to also write the image's kernel as an update package,
+# <image>.kernel.tar.xz beside the image: Image, DTB, .config, System.map and the
+# module tree exactly as the image carries it, out-of-tree drivers and OpenZFS
+# included (package_kernel in lib/kernel.sh).
+KERNEL_PACKAGE="${KERNEL_PACKAGE:-0}"
+
 # ------------------------------ Derived paths --------------------------------
 DOWNLOAD_DIR="${WORKSPACE}/downloads"
 SRC_DIR="${WORKSPACE}/src"

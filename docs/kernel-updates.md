@@ -1,7 +1,8 @@
 # 内核更新流程
 
 **显式选择候选版本 → 检查补丁/配置/设备树 → 编译内核和驱动 → 真机测试 → 更新默认版本。**
-普通构建不会查询或追随 `latest`，也不会自动修改默认版本。
+普通构建不会查询或追随 `latest`，也不会自动修改默认版本。例外是 GitHub 上的 `kernel-bump` 工作流：
+当前系列出了新的点版本，CI 检查和编译都通过后直接更新默认版本，真机测试放在之后，见[第 6 节](#6-自动跟进点版本github-actions)。
 
 本页是**构建端版本验证**。设备端更新采用 SWUpdate 的方向与首个 ROCK5C 测试镜像，
 见 [SWUpdate 集成](swupdate.md)；两者不是同一个命令，当前尚未实现内核在线切换。
@@ -120,6 +121,54 @@ make test-kernel
 ```
 
 默认值变动后旧报告的输入摘要会失效。保留 Git 中的版本配置与测试记录，回退时显式选用先前的发布标签。
+
+## 6. 自动跟进点版本（GitHub Actions）
+
+[`kernel-bump.yml`](../.github/workflows/kernel-bump.yml) 每天（UTC 03:23）查一次 `DEFAULT_KERNEL_REPO`：
+
+1. 找默认值所在系列最新的点版本（默认 v7.2.9 就看 v7.2.x），不比默认值新就什么都不做。
+2. 每块板跑 `kernel-check`（发行版一律 debian，ZFS 根只认它）；同时用 `build.yml` 完整构建默认目标，
+   出镜像和[内核更新包](#内核更新包)。
+3. 全部通过后，在 `main` 上提交一处改动：`config/versions.conf` 的 `DEFAULT_KERNEL_REF`。提交人是
+   `github-actions[bot]`，提交前跑过 `make test-kernel`。
+4. 镜像和内核更新包发成预发布 `linux-X.Y.Z`，标签打在这个提交上。
+
+**这条路径不等真机测试**，和上面第 4、5 步不同：默认值先动，真机测试拿预发布里的镜像或内核包来做。
+测出问题就把 `DEFAULT_KERNEL_REF` 改回先前的标签。
+
+- 出了新系列（比如 7.3）只在运行摘要里提示，不自动跟：板级补丁（Q8B 的 80 个）通常要人工刷新，OpenZFS
+  的 `Linux-Maximum` 也得覆盖到。想试就手动触发并填 `ref`。
+- 手动触发：`gh workflow run kernel-bump.yml` 立刻查一次；`-f ref=v7.2.10` 指定版本（必须比默认值新）；
+  `-f targets=...` 换完整构建的目标，写法同 `build.yml`。
+- 某个点版本检查或编译失败就不提交、不发布，第二天定时再试，直到补丁修好或出了下一个点版本。
+- 提交只进 GitHub 上的 `main`，本地和其他远端要先拉取。
+- 仓库 60 天没有任何活动，GitHub 会停掉定时工作流，需要到 Actions 页面重新启用。
+
+## 内核更新包
+
+`KERNEL_PACKAGE=1` 时，镜像旁边多一个 `<镜像名>.kernel.tar.xz`（Actions 构建总会带上），用来给已经在跑
+这个镜像的板子换内核，不用重刷整盘：
+
+```
+<镜像名>/
+  Image
+  dtbs/<厂商>/<板>.dtb
+  config-<release>
+  System.map-<release>
+  modules/<release>/   镜像里的整个模块目录，树外驱动（AIC8800）和 OpenZFS 都在
+  MANIFEST             板子、发行版、用途、根文件系统、release、内核标签与 commit、是否需要 initramfs
+  SHA256SUMS           Image、DTB、config、System.map 的摘要
+```
+
+模块取自装好的 rootfs，和镜像里的一模一样。包里没有 initramfs：ZFS 根（`MANIFEST` 里
+`initramfs=required`）要在板上用本板的 hostid 现做。
+
+- **U-Boot 板**（ext4 根、extlinux）：`modules/<release>` 拷进 `/lib/modules/`，`Image` 和 DTB 换掉
+  `/boot/Image`、`/boot/dtbs/` 下的同名文件。extlinux.conf 只有一个启动项，**新内核起不来不会自动退回**；
+  没接串口的板子先想好怎么恢复（比如留着旧的 `Image`、DTB，SD 卡能拔下来在别的机器上换回去）。
+- **Dragon Q8B**（UEFI + ZFS 根）：照 [Incus 主机](incus.md)里「内核更新到 7.2.9」一节的启动环境做法：
+  克隆当前启动环境，把 `modules/<release>` 装进克隆，在克隆里用本板 hostid 重做 initramfs，`Image`、DTB
+  和 initramfs 放进 ESP 的新目录，再加一条带启动计数的启动项，新内核连续起不来三次就自动退回。
 
 ## 回归测试
 
