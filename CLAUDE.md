@@ -13,6 +13,9 @@
 - 默认源码版本集中在 `config/versions.conf`；`make kernel-check/kernel-build BOARD=... KERNEL_REF=vX.Y.Z`
   使用全新独立验证工作区，不取 U-Boot/固件、不做 rootfs。`kernel-promote` 需成功 build 报告与人工真机确认，见 `docs/kernel-updates.md`。
 - 以普通用户跑；需要 root 的步骤自动 `sudo`。成品在 `out/`，镜像名 `<前缀>-<distro>[-<profile>]-<内核版本>.img.xz`。
+- GitHub Actions（`docs/build.md`）：`build.yml` 手动触发，`targets='rock5c:debian:incus e20c'`，每个目标一台原生 arm64
+  runner，ccache 按目标缓存；`check.yml` 每次推送跑离线测试。工作流自己加的环境变量一律 `AP_` 前缀：构建的环境会一路
+  传进内核和 U-Boot 的 make。runner 上 U-Boot 走 GitHub 镜像（`source.denx.de` 返回 502）。
 
 ## 目录 / 职责
 ```

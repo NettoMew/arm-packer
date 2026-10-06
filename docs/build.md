@@ -54,6 +54,54 @@ make rock5c SKIP_FETCH=0 SKIP_BUILD=0 CLEAN_KERNEL=1   # 换成你的板子
 make rock5c KERNEL_REPO=https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git KERNEL_REF=master
 ```
 
+## 在 GitHub Actions 上构建
+
+仓库带两个工作流：
+
+- `check`（[`check.yml`](../.github/workflows/check.yml)）：每次推送和 PR 都跑离线检查：`bash -n`、
+  `make test-kernel`（全部板 × 发行版 × 用途的 dry-run 矩阵与合约单测）、`make test-image`、`make test-swupdate`。
+- `build`（[`build.yml`](../.github/workflows/build.yml)）：手动触发，在 GitHub 原生 arm64 runner
+  （`ubuntu-24.04-arm`，4 核、15 GB 内存）上构建镜像。内核原生编译，不用交叉工具链，也不用 qemu；
+  ZFS 池由 runner 内核自带的 zfs 模块创建。每个目标占一台 runner，并行构建。
+
+```sh
+gh workflow run build.yml                          # 默认：dragon-q8b:debian:incus rock5c:debian:incus
+gh workflow run build.yml -f targets='rock5c:debian:incus e20c m28k-noscreen:archlinux'
+gh workflow run build.yml -f targets=all:debian    # Makefile 里 all 的全部板子，都用 debian
+gh workflow run build.yml -f targets=rock5c:debian:incus -f env='ROCK5C_NVME_BOOT=1'
+gh workflow run build.yml -f targets=dragon-q8b:debian:incus -f kernel_ref=v7.2.10
+gh workflow run build.yml -f release=v2026.10.06   # 另外发布到这个标签的 Release
+```
+
+- **目标**写成 `make 目标[:发行版[:用途]]`。make 目标就是 Makefile 里的板子目标（包括 `m28k-noscreen`、
+  `rock5c-stock`），省略的部分取引擎默认值。plan 任务先对每个目标跑一遍 dry-run：目标写错、组合不合法
+  （比如 alpine 配 ZFS 根），几秒内就失败，不占构建 runner。
+- **`env`** 是空格分隔的 `KEY=VALUE`，作用于每个目标，值里不能有空格和引号。
+- **成品**：每个镜像单独上传成不打包的 artifact，下载即 `.img.xz`。另有 `record-<目标>`，内含构建日志、
+  内核 `.config`、sha256 和 ccache 统计；构建失败时也会上传，用来排查。两者都保留 30 天。
+  填了 `release` 时，全部目标成功后再发到该标签的 Release；标签已存在就覆盖同名文件。
+- **U-Boot** 改从 GitHub 镜像拉取：`source.denx.de` 对 runner 返回 502。
+
+实测（Linux 7.2.9，2026-10）：冷编每个目标约 80 分钟，其中内核占 73 分钟；缓存热了以后整个任务
+10–14 分钟，ccache 命中 99.9%，内核只剩约 4 分钟（链接、BTF、modpost）。
+
+缓存（仓库免费额度共 10 GB，7 天没用到的条目会被 GitHub 清掉）：
+
+- **ccache**：每个目标一份，约 3 GB（zstd 压缩约 3.2 倍），所以额度大约装得下三个目标，再多就按最久
+  没用的先淘汰，那个目标下次冷编。键为 `ccache-arm64-<目标>-<运行号>`。目标第一次构建时，先借用别的目标的
+  缓存起步，能命中多少取决于两边的内核配置有多接近。构建成功后只保留本次用到的对象，所以升级内核后旧版本的
+  对象不会一直占着空间；构建失败则原样保留，重试时照样能用。几乎全命中的构建不再重存，存了新条目后
+  删掉同目标的旧条目，免得把别的目标挤出额度。
+- **`work/downloads`**：OpenZFS、systemd-boot 和锁定的固件，几十 MB，键随 `config/versions.conf`
+  与各板 `firmware.lock` 的内容变化。发行版的 rootfs 包不缓存：它们跟着 latest 走、文件名却不变
+  （Arch 插件见到同名文件就直接复用，缓存会让 CI 一直用旧快照），而且镜像站很快，Alpine 的 460 MB
+  只要 17 秒。
+- **源码树不缓存**：内核从 git.kernel.org 浅克隆、U-Boot 等从 GitHub 克隆，各只要几十秒；缓存它们
+  还会挤占 ccache 的额度。
+
+缓存条目归属存下它的分支：`main` 存的所有分支都能用，其他分支存的只有那个分支自己能用。所以平时
+在 `main` 上触发，缓存才能一直热着。
+
 ## 常用开关（环境变量）
 
 Rockchip 的 `rkbin` 也固定到 `config/versions.conf` 中的提交，与 `lib/vendor/rockchip.sh`

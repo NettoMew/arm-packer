@@ -1,0 +1,40 @@
+# The offline checks of "验证手段" in CLAUDE.md, on every push and pull request:
+# syntax, the dry-run matrix of every board × distro × profile with the contract
+# unit tests (test-kernel), image packaging (test-image) and the SWUpdate
+# preflight (test-swupdate). Nothing here compiles, fetches sources or needs root.
+name: check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Syntax
+        run: |
+          git ls-files -z '*.sh' '*.start' 'boards/*/board.conf' | xargs -0 -n 1 bash -n
+
+      - name: test-kernel
+        run: make test-kernel
+
+      - name: test-image
+        run: make test-image
+
+      - name: test-swupdate
+        run: make test-swupdate

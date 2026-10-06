@@ -65,7 +65,7 @@ xz -dc out/<镜像>.img.xz | sudo dd of=/dev/sdX bs=4M conv=fsync iflag=fullbloc
 
 | | |
 |---|---|
-| [构建与开关](docs/build.md) | 跑法、环境变量全表、烧写、默认登录 |
+| [构建与开关](docs/build.md) | 跑法、GitHub Actions 构建、环境变量全表、烧写、默认登录 |
 | [内核更新流程](docs/kernel-updates.md) | 集中版本配置、候选验证/编译、真机测试后更新默认值 |
 | [SWUpdate 测试镜像](docs/swupdate.md) | 上游 APK、签名验证、ROCK5C 首个测试目标及当前边界 |
 | [支持的板子](docs/boards.md) | 镜像命名、各板细节 |

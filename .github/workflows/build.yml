@@ -1,0 +1,340 @@
+# Builds firmware images on GitHub's native arm64 runners. The kernel compiles
+# natively (aarch64-linux-gnu-gcc is the runner's own compiler, no qemu), the
+# runner's kernel already carries the zfs module a ZFS root is created with, and
+# ccache carries the compiler's work from one run to the next, per target.
+#
+# Run it from the Actions tab or with
+#   gh workflow run build.yml -f targets='rock5c:debian:incus e20c'
+# Each target is a board target of the Makefile, optionally followed by
+# :distro and :profile; "all" stands for every board the Makefile's "all" builds.
+#
+# Everything the workflow itself puts in the environment is prefixed AP_: the
+# build passes its environment on to the kernel's and U-Boot's make, where an
+# unprefixed name could mean something.
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: 目标，空格分隔：make 目标[:发行版[:用途]]，如 rock5c:debian:incus m28k-noscreen；all[:发行版] = Makefile 里的全部板子
+        type: string
+        default: dragon-q8b:debian:incus rock5c:debian:incus
+      kernel_ref:
+        description: 内核标签（留空 = config/versions.conf 的默认值）
+        type: string
+        default: ''
+      env:
+        description: 额外开关，空格分隔的 KEY=VALUE，作用于每个目标（如 ROCK5C_NVME_BOOT=1 IMAGE_SIZE=8G）
+        type: string
+        default: ''
+      release:
+        description: 发布到这个 Release 标签（留空 = 只上传 artifact）
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+# The same targets on the same branch queue behind each other instead of racing
+# for the same cache entries.
+concurrency:
+  group: build-${{ github.ref }}-${{ inputs.targets }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  AP_TARGETS: ${{ inputs.targets }}
+  AP_EXTRA_ENV: ${{ inputs.env }}
+  KERNEL_REF: ${{ inputs.kernel_ref }}
+  # source.denx.de turns the runners away (502); the GitHub mirror carries the
+  # same commits.
+  UBOOT_REPO: https://github.com/u-boot/u-boot.git
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Every target is resolved through the Makefile and dry-run here, so a typo
+      # or a combination the engine refuses (alpine on a ZFS root, say) fails in
+      # seconds instead of after a runner has been set up for it.
+      - name: Resolve targets
+        id: plan
+        run: |
+          set -Eeuo pipefail
+          read -r -a extra <<< "${AP_EXTRA_ENV}"
+          for kv in "${extra[@]}"; do
+            [[ "${kv}" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9._/:+,@=-]*$ ]] \
+              || { echo "::error::env 只接受 KEY=VALUE（值不含空格和引号）：${kv}"; exit 1; }
+          done
+          read -r -a items <<< "${AP_TARGETS}"
+          (( ${#items[@]} )) || { echo "::error::targets 为空"; exit 1; }
+          read -r -a boards <<< "$(sed -n 's/^all:[[:space:]]*//p' Makefile)"
+          list=()
+          for item in "${items[@]}"; do
+            if [[ "${item%%:*}" == all ]]; then
+              for board in "${boards[@]}"; do list+=("${board}${item#all}"); done
+            else
+              list+=("${item}")
+            fi
+          done
+          matrix='[]'
+          for item in "${list[@]}"; do
+            [[ "${item}" =~ ^[a-z0-9-]+(:[a-z0-9-]*){0,2}$ ]] \
+              || { echo "::error::目标写成 make 目标[:发行版[:用途]]：${item}"; exit 1; }
+            IFS=: read -r target distro profile <<< "${item}"
+            recipe="$(make -s -n "${target}" 2>/dev/null)" || recipe=""
+            [[ "${recipe}" == *scripts/build.sh && "${recipe}" != *$'\n'* ]] \
+              || { echo "::error::${target} 不是 Makefile 里的板子目标"; exit 1; }
+            echo "::group::${item}: ${recipe} --dry-run"
+            env "${extra[@]}" DISTRO="${distro}" PROFILE="${profile}" bash -c "${recipe} --dry-run"
+            echo "::endgroup::"
+            matrix="$(jq -c --arg name "${item//:/-}" --arg target "${target}" \
+              --arg distro "${distro}" --arg profile "${profile}" \
+              '. + [{name: $name, target: $target, distro: $distro, profile: $profile}] | unique_by(.name)' <<< "${matrix}")"
+          done
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: ${{ matrix.name }}
+    needs: plan
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 330
+    permissions:
+      contents: read
+      actions: write   # prunes this target's superseded ccache entries
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      AP_NAME: ${{ matrix.name }}
+      AP_CCACHE_KEY: ccache-arm64-${{ matrix.name }}
+      AP_CCACHE_ENTRY: ccache-arm64-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+      CCACHE_DIR: /home/runner/.ccache
+      # The working set of one distro-grade kernel with full debug info, plus
+      # OpenZFS, U-Boot and the out-of-tree drivers, fits with room to spare.
+      CCACHE_MAXSIZE: 8G
+      # Nothing edits a header while the build runs; the checkout is minutes old
+      # when the compiler starts, which ccache would otherwise distrust.
+      CCACHE_SLOPPINESS: include_file_ctime,include_file_mtime,time_macros
+    steps:
+      - name: Start the clock
+        run: echo "AP_BUILD_START=$(date +%s)" >> "${GITHUB_ENV}"
+
+      - uses: actions/checkout@v7
+
+      - name: Prepare the runner
+        run: |
+          # pahole holds ~9 GB while it writes the vmlinux BTF, next to the
+          # compile jobs still running; the runner has 15 GB and 3 GB of swap.
+          sudo fallocate -l 8G /swap.arm-packer
+          sudo chmod 600 /swap.arm-packer
+          sudo mkswap -q /swap.arm-packer
+          sudo swapon /swap.arm-packer
+          # What the engine checks for but does not install itself (lib/deps.sh
+          # installs the toolchain and image tools when the build starts).
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends \
+            ccache zfsutils-linux mmdebstrap debian-archive-keyring libarchive-tools
+          # The engine calls aarch64-linux-gnu-gcc, which is native here; ccache
+          # answers under that name and under the host compiler's.
+          mkdir -p "${HOME}/ccache-bin"
+          for cc in aarch64-linux-gnu-gcc gcc cc; do ln -sf /usr/bin/ccache "${HOME}/ccache-bin/${cc}"; done
+          echo "${HOME}/ccache-bin" >> "${GITHUB_PATH}"
+
+      # This target's own cache first; a target built for the first time starts
+      # from another target's; how much of it hits depends on how close the two
+      # kernel configurations are.
+      - name: Restore ccache
+        id: ccache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ env.AP_CCACHE_ENTRY }}
+          restore-keys: |
+            ${{ env.AP_CCACHE_KEY }}-
+            ccache-arm64-
+
+      # OpenZFS, systemd-boot and locked firmware: pinned, checked against their
+      # checksums, and slow or flaky to fetch now and then. The distro rootfs
+      # tarballs stay out. They follow "latest" under a fixed name (the Arch
+      # plugin would reuse a cached one however old) and come from fast mirrors.
+      - name: Cache downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            work/downloads
+            !work/downloads/alpine-*
+            !work/downloads/ArchLinuxARM-*
+            !work/downloads/eweos-*
+          key: downloads-${{ matrix.name }}-${{ hashFiles('config/versions.conf', 'boards/*/firmware.lock') }}
+          restore-keys: downloads-${{ matrix.name }}-
+
+      - name: Build
+        id: build
+        env:
+          AP_MAKE_TARGET: ${{ matrix.target }}
+          DISTRO: ${{ matrix.distro }}
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          read -r -a extra <<< "${AP_EXTRA_ENV}"
+          ccache --zero-stats > /dev/null
+          env "${extra[@]}" make "${AP_MAKE_TARGET}" 2>&1 | tee build.log
+
+      # A build that went through keeps only what it used, so the cache saved
+      # for next time holds this kernel and no older one; a failed build keeps
+      # everything it restored. The cache is saved again when the build compiled
+      # a noticeable amount, or when this target had none of its own yet.
+      - name: Report ccache
+        id: ccache-report
+        if: ${{ !cancelled() }}
+        env:
+          AP_BUILD_OUTCOME: ${{ steps.build.outcome }}
+          AP_MATCHED_KEY: ${{ steps.ccache.outputs.cache-matched-key }}
+        run: |
+          { ccache --show-stats --verbose; ccache --show-compression; } | tee ccache-stats.txt
+          counter() { ccache --print-stats | awk -v k="$1" '$1 == k { n = $2 } END { print n + 0 }'; }
+          hits=$(( $(counter direct_cache_hit) + $(counter preprocessed_cache_hit) ))
+          misses="$(counter cache_miss)"
+          if [[ "${AP_BUILD_OUTCOME}" == success ]]; then
+            ccache --evict-older-than "$(( $(date +%s) - AP_BUILD_START + 60 ))s"
+          fi
+          size="$(du -sh "${CCACHE_DIR}" | cut -f1)"
+          save=false
+          if (( misses > 200 )) || { [[ "${AP_MATCHED_KEY}" != "${AP_CCACHE_KEY}-"* ]] && (( misses > 0 )); }; then
+            save=true
+          fi
+          {
+            echo "hits=${hits}"
+            echo "misses=${misses}"
+            echo "size=${size}"
+            echo "save=${save}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "ccache: ${hits} hits, ${misses} misses, ${size} kept, save=${save}"
+
+      - name: Save ccache
+        id: ccache-save
+        if: ${{ !cancelled() && steps.ccache-report.outputs.save == 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ env.AP_CCACHE_ENTRY }}
+
+      # Each save is a new entry; the older ones of this target would only push
+      # other targets' caches out of the repository's 10 GB.
+      - name: Prune superseded ccache entries
+        if: ${{ !cancelled() && steps.ccache-save.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh cache list --repo "${GITHUB_REPOSITORY}" --ref "${GITHUB_REF}" --key "${AP_CCACHE_KEY}-" \
+            --limit 100 --json id,key --jq ".[] | select(.key != \"${AP_CCACHE_ENTRY}\") | .id" |
+          while read -r id; do
+            gh cache delete "${id}" --repo "${GITHUB_REPOSITORY}"
+          done
+
+      - name: Collect
+        id: collect
+        if: ${{ steps.build.outcome == 'success' }}
+        env:
+          AP_HITS: ${{ steps.ccache-report.outputs.hits }}
+          AP_MISSES: ${{ steps.ccache-report.outputs.misses }}
+          AP_CACHE_SIZE: ${{ steps.ccache-report.outputs.size }}
+        run: |
+          shopt -s nullglob
+          images=(out/*.img.xz)
+          (( ${#images[@]} == 1 )) || { echo "::error::out/ 里应有一个镜像，实有 ${#images[@]} 个"; exit 1; }
+          image="${images[0]}"
+          file="${image##*/}"
+          (cd out && sha256sum "${file}" > "${file}.sha256")
+          mkdir -p record
+          cp "${image}.sha256" record/
+          cp work/build/linux-build/.config "record/${AP_NAME}.kernel.config"
+          echo "image=${image}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "### ${AP_NAME}"
+            echo
+            echo "| 项目 | 值 |"
+            echo "| --- | --- |"
+            echo "| 镜像 | \`${file}\`（$(du -h "${image}" | cut -f1)） |"
+            echo "| SHA-256 | \`$(cut -d' ' -f1 "${image}.sha256")\` |"
+            echo "| 用时 | $(( ($(date +%s) - AP_BUILD_START) / 60 )) 分钟 |"
+            echo "| ccache | 命中 ${AP_HITS}，未命中 ${AP_MISSES}，保留 ${AP_CACHE_SIZE} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload image
+        if: ${{ steps.collect.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.collect.outputs.image }}
+          archive: false
+          retention-days: 30
+
+      - name: Gather the build record
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p record
+          [[ ! -f build.log ]] || mv build.log "record/${AP_NAME}.build.log"
+          [[ ! -f ccache-stats.txt ]] || mv ccache-stats.txt "record/${AP_NAME}.ccache.txt"
+
+      - name: Upload build record
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: record-${{ matrix.name }}
+          path: record/
+          retention-days: 30
+
+  release:
+    name: release
+    needs: build
+    if: ${{ inputs.release != '' }}
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: '*.img.xz'
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: record-*
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          AP_TAG: ${{ inputs.release }}
+        run: |
+          set -Eeuo pipefail
+          cd dist
+          shopt -s nullglob
+          images=(*.img.xz)
+          (( ${#images[@]} )) || { echo "::error::没有可发布的镜像"; exit 1; }
+          {
+            echo "构建自 \`${GITHUB_SHA:0:12}\`，[运行记录](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})。"
+            echo
+            echo "| 镜像 | SHA-256 |"
+            echo "| --- | --- |"
+            for f in "${images[@]}"; do echo "| \`${f}\` | \`$(cut -d' ' -f1 "${f}.sha256")\` |"; done
+          } > notes.md
+          assets=("${images[@]}")
+          for f in "${images[@]}"; do assets+=("${f}.sha256"); done
+          if gh release view "${AP_TAG}" > /dev/null 2>&1; then
+            gh release upload "${AP_TAG}" "${assets[@]}" --clobber
+          else
+            gh release create "${AP_TAG}" --target "${GITHUB_SHA}" --title "${AP_TAG}" --notes-file notes.md "${assets[@]}"
+          fi
