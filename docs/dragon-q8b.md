@@ -123,7 +123,7 @@ options    root=ZFS=rpool/ROOT/debian rw console=tty1 console=ttyMSM0,115200n8 e
 ### 板级（`boards/dragon-q8b/`）
 
 - **内核补丁**（`linux/patches/`，80 个，编号到 0081）：Armbian `sc8280xp-edge` 系列（armbian/build `1443dbae`）
-  带到 7.2.7 再到 7.2.9：删掉 7.2.7 已包含或已被上游替代的 5 个、7.2.8 已包含的 1 个（0037，编号空着），
+  带到 7.2.7 再到 7.2.9、7.2.10（同一套两版都能套上）：删掉 7.2.7 已包含或已被上游替代的 5 个、7.2.8 已包含的 1 个（0037，编号空着），
   刷新 2 个。另加 22 个，来源与理由逐个写在
   `linux/README.md`：
   - 0060 修 TC956x 网卡驱动在栈上未初始化的 IRQ 域参数（内核不自动清零栈时两个网口都起不来）；

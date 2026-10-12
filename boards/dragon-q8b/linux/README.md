@@ -1,8 +1,8 @@
 # Dragon Q8B kernel series
 
 `patches/` is a `git format-patch` series that applies cleanly, in order, on top
-of Linux **v7.2.9**. It is Armbian's tested `sc8280xp-edge` series (written for
-v7.2.3) carried forward to v7.2.7, then to v7.2.9:
+of Linux **v7.2.9** and **v7.2.10**. It is Armbian's tested `sc8280xp-edge`
+series (written for v7.2.3) carried forward to v7.2.7, then to v7.2.9 and v7.2.10:
 
 - **Source:** [armbian/build `1443dbae`](https://github.com/armbian/build/tree/1443dbaed3f65d6d3ce0fa343047fbf4a09dbfd4/patch/kernel/archive/sc8280xp-edge),
   the last commit touching the series (2026-09-12). Authors and commit messages
@@ -21,7 +21,13 @@ v7.2.3) carried forward to v7.2.7, then to v7.2.9:
   - Armbian 0021 (here 0021, stmmac `dma_device`): a stable TSO fix moved the
     context of the `stmmac_tso_xmit()` hunks. All four DMA calls there (`dma_map_single`,
     `skb_frag_dma_map`, two `dma_mapping_error`) are converted, and no DMA call on
-    `priv->device` is left in `stmmac_main.c`.
+    `priv->device` is left in `stmmac_main.c`. v7.2.10's "net: stmmac: fix rx
+    Scatter-Gather support" then rewrote the page_pool offset and length right
+    after the `pp_params.nid`/`dev` hunk, and put the FCS bookkeeping in front of
+    the first `dma_sync_single_for_cpu()` in `stmmac_rx()`. Those two hunks now
+    carry only the context both releases share (one line after, one line before),
+    so the same series applies to v7.2.9 and v7.2.10 and the kernel-bump workflow
+    can move the default by itself.
   - Armbian 0048 (here 0045, DP EDID on every probe): stable added a
     `drm_edid_connector_update()` call to `msm_dp_panel_get_modes()`. The patch
     removes that function outright, now including the new line. The bridge

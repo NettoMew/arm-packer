@@ -178,7 +178,7 @@ index f801caf65..fb2c0517e 100644
  
  	kfree(tx_q->tx_skbuff_dma);
  	kfree(tx_q->tx_skbuff);
-@@ -2253,8 +2253,8 @@ static int __alloc_dma_rx_desc_resources(struct stmmac_priv *priv,
+@@ -2253,6 +2253,6 @@ static int __alloc_dma_rx_desc_resources(struct stmmac_priv *priv,
  	pp_params.flags = PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV;
  	pp_params.pool_size = dma_conf->dma_rx_size;
  	pp_params.order = order_base_2(num_pages);
@@ -187,8 +187,6 @@ index f801caf65..fb2c0517e 100644
 +	pp_params.nid = dev_to_node(priv->dma_device);
 +	pp_params.dev = priv->dma_device;
  	pp_params.dma_dir = xdp_prog ? DMA_BIDIRECTIONAL : DMA_FROM_DEVICE;
- 	pp_params.offset = stmmac_rx_offset(priv);
- 	pp_params.max_len = dma_conf->dma_buf_sz;
 @@ -2277,7 +2277,7 @@ static int __alloc_dma_rx_desc_resources(struct stmmac_priv *priv,
  
  	size = stmmac_get_rx_desc_size(priv) * dma_conf->dma_rx_size;
@@ -293,9 +291,7 @@ index f801caf65..fb2c0517e 100644
  					   xdpf->len, DMA_BIDIRECTIONAL);
  
  		buf_type = STMMAC_TXBUF_T_XDP_TX;
-@@ -5816,7 +5816,7 @@ static int stmmac_rx(struct stmmac_priv *priv, int limit, u32 queue)
- 		if (!skb) {
- 			unsigned int pre_len, sync_len;
+@@ -5818,5 +5818,5 @@ static int stmmac_rx(struct stmmac_priv *priv, int limit, u32 queue)
  
 -			dma_sync_single_for_cpu(priv->device, buf->addr,
 +			dma_sync_single_for_cpu(priv->dma_device, buf->addr,
